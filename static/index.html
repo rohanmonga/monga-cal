@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monga Cal — Schedule</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Compact Top Navbar -->
+    <header class="top-nav">
+      <div class="brand-group">
+        <div class="brand-icon">⚡</div>
+        <h1 class="app-title">Monga Cal</h1>
+      </div>
+
+      <div class="time-widget">
+        <span class="time-display" id="clockTime">--:--</span>
+        <span class="date-display" id="clockDate">--</span>
+      </div>
+
+      <div class="action-buttons">
+        <button class="nav-btn btn-secondary" id="openSettingsBtn">⚙️ Settings</button>
+        <button class="nav-btn btn-secondary" id="openAddTaskBtn">➕ Add Task</button>
+        <button class="nav-btn btn-primary" id="rescheduleBtn">⚡ Re-Solve</button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Content -->
+    <main class="dashboard-body">
+
+      <!-- COMPACT GANTT CHART TIMELINE SECTION -->
+      <section class="gantt-section">
+        <div class="section-header">
+          <div class="section-title-group">
+            <h2>Gantt Timeline</h2>
+          </div>
+          <div class="view-toggle">
+            <button class="view-btn active" id="ganttViewBtn">📊 Gantt</button>
+            <button class="view-btn" id="listViewBtn">📋 List</button>
+          </div>
+        </div>
+
+        <div class="gantt-wrapper">
+          <div class="gantt-time-scale" id="ganttTimeScale"></div>
+          <div class="gantt-tracks-container" id="ganttTracks">
+            <div class="gantt-loading">
+              <div class="glow-spinner"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TIGHT EXECUTIVE AGENDA CARDS SECTION -->
+      <section class="agenda-section">
+        <div class="section-header">
+          <div class="section-title-group">
+            <h2>Workload Agenda</h2>
+          </div>
+          <div class="stats-counter" id="scheduleCountBadge">
+            <span class="dot-live"></span> 0 Tasks
+          </div>
+        </div>
+
+        <div class="agenda-cards-grid" id="agendaTimeline">
+          <div class="loading-state">
+            <div class="spinner"></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Compact Status Bar Footer -->
+    <footer class="solver-bar">
+      <div class="solver-bar-inner">
+        <span>Engine: <strong id="solverEngine">OR-Tools CP-SAT</strong></span>
+        <div class="divider"></div>
+        <span>Status: <strong class="badge-status-green" id="solverStatus">OPTIMAL</strong></span>
+        <div class="divider"></div>
+        <span>Solve: <strong id="solverTime">0.005s</strong></span>
+        <div class="divider"></div>
+        <span>Window: <strong id="solverHours">8:00 - 21:00</strong></span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal-container modal-lg">
+      <div class="modal-head">
+        <div class="head-icon">⚙️</div>
+        <div>
+          <h3>Schedule Settings</h3>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="label-title">Active Days</label>
+        <div class="day-selector-grid">
+          <button class="day-chip active" data-day="0">Mon</button>
+          <button class="day-chip active" data-day="1">Tue</button>
+          <button class="day-chip active" data-day="2">Wed</button>
+          <button class="day-chip active" data-day="3">Thu</button>
+          <button class="day-chip active" data-day="4">Fri</button>
+          <button class="day-chip active" data-day="5">Sat</button>
+          <button class="day-chip active" data-day="6">Sun</button>
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="label-title">Start Hour (24h)</label>
+          <input type="number" id="workStartHourInput" class="custom-input" min="0" max="23" value="8">
+        </div>
+        <div class="form-group">
+          <label class="label-title">End Hour (24h)</label>
+          <input type="number" id="workEndHourInput" class="custom-input" min="1" max="24" value="21">
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="label-title">Buffer (Mins)</label>
+          <input type="number" id="bufferMinutesInput" class="custom-input" min="0" max="60" value="10">
+        </div>
+        <div class="form-group">
+          <label class="label-title">High Energy Start</label>
+          <input type="number" id="highEnergyStartInput" class="custom-input" min="0" max="23" value="9">
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-cancel" id="cancelSettingsBtn">Cancel</button>
+        <button class="btn-submit" id="saveSettingsBtn">Save & Solve</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Task Modal -->
+  <div class="modal-overlay" id="addTaskModal">
+    <div class="modal-container">
+      <div class="modal-head">
+        <div class="head-icon">➕</div>
+        <div>
+          <h3>Add Task</h3>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="label-title">Task Title</label>
+        <input type="text" id="newTaskTitleInput" class="custom-input" placeholder="e.g. Pay bills">
+      </div>
+
+      <div class="form-group">
+        <label class="label-title">Notes (Optional)</label>
+        <textarea id="newTaskNotesInput" class="custom-input custom-textarea" placeholder="Details..."></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-cancel" id="cancelAddTaskBtn">Cancel</button>
+        <button class="btn-submit" id="saveAddTaskBtn">Add Task</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Completion Modal -->
+  <div class="modal-overlay" id="completionModal">
+    <div class="modal-container">
+      <div class="modal-head">
+        <div class="head-icon">✅</div>
+        <div>
+          <h3>Log Task Duration</h3>
+        </div>
+      </div>
+
+      <div class="task-name-display" id="modalTaskTitle">Task Title</div>
+
+      <div class="duration-input-box">
+        <input type="number" id="actualMinutesInput" min="5" max="360" value="30">
+        <span class="unit">mins</span>
+      </div>
+
+      <div class="quick-chips">
+        <button class="quick-chip" data-min="15">15m</button>
+        <button class="quick-chip" data-min="25">25m</button>
+        <button class="quick-chip" data-min="30">30m</button>
+        <button class="quick-chip" data-min="45">45m</button>
+        <button class="quick-chip" data-min="60">60m</button>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-cancel" id="cancelModalBtn">Cancel</button>
+        <button class="btn-submit btn-emerald" id="confirmCompleteBtn">Log & Complete</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

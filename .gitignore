@@ -1,0 +1,21 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Secrets & OAuth Credentials
+credentials.json
+token.json
+.env
+
+# SQLite Database
+monga_cal.db
+*.db
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# System
+.DS_Store

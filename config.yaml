@@ -1,0 +1,26 @@
+# monga-cal configuration
+
+icloud:
+  caldav_url: "https://caldav.icloud.com/"
+  calendar_name: "Personal"          # Primary calendar for scheduling flexible blocks
+  reminders_list_name: "Reminders"    # Reminders list to poll for tasks
+
+scheduler:
+  work_start_hour: 8                  # 8 AM
+  work_end_hour: 21                   # 9 PM
+  buffer_minutes: 10                  # Buffer between scheduled tasks
+  min_block_minutes: 15               # Minimum task slot length
+  high_energy_start_hour: 9           # Morning peak starts at 9 AM
+  high_energy_end_hour: 12            # Morning peak ends at 12 PM
+  anti_thrash_threshold_minutes: 15   # Don't reschedule if shift is < 15 min
+  lock_window_minutes: 30             # Don't move blocks starting within 30 min
+
+ai:
+  model_name: "gemini-2.0-flash"      # Fast, reliable Gemini model
+  default_duration_minutes: 30
+  default_priority: 5
+  history_limit: 20                    # Task completion history sent for estimation context
+
+daemon:
+  poll_interval_seconds: 180          # 3 minutes
+  db_path: "monga_cal.db"             # SQLite DB file path
