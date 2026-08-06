@@ -82,13 +82,18 @@ class DaemonService:
                 est_task = self.ai.estimate_task(t)
                 estimated_tasks.append(est_task)
 
+            last_plan = self.db.get_latest_plan() or []
+
             self.status.status = "solving"
-            plan = self.scheduler.solve(estimated_tasks, fixed_events, start_time=now)
+            plan = self.scheduler.solve(
+                estimated_tasks,
+                fixed_events,
+                start_time=now,
+                locked_blocks=last_plan
+            )
             self.status.scheduled_blocks_count = len(plan.blocks)
 
             new_hash = self.compute_plan_hash(plan.blocks)
-            last_plan = self.db.get_latest_plan() or []
-
             should_sync = force_calendar_sync or self.should_sync_calendar(plan.blocks, last_plan)
 
             if should_sync:

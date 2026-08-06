@@ -32,6 +32,7 @@ class Scheduler:
         fixed_events: List[CalendarSlot],
         start_time: Optional[datetime] = None,
         days_ahead: int = 2,
+        locked_blocks: Optional[List[Dict[str, Any]]] = None,
     ) -> SchedulePlan:
         t0 = time.time()
 
@@ -131,7 +132,28 @@ class Scheduler:
         # HARD CONSTRAINT: No overlapping tasks
         model.AddNoOverlap(interval_vars)
 
-        # BUG-2 FIX: HARD CONSTRAINT — max_tasks_per_day enforced per individual calendar day
+        # LOCK WINDOW ENFORCEMENT (lock_window_minutes): Freeze blocks starting in < lock_window_minutes
+        lock_threshold = now + timedelta(minutes=config.scheduler.lock_window_minutes)
+        if locked_blocks:
+            for lb in locked_blocks:
+                l_id = lb.get("task_id")
+                try:
+                    l_start = datetime.fromisoformat(lb["start"])
+                    if l_start.tzinfo:
+                        l_start = l_start.replace(tzinfo=None)
+                    if now <= l_start < lock_threshold and l_id in task_vars:
+                        matching_indices = [i for i, s_dt in enumerate(slots) if s_dt >= l_start]
+                        if matching_indices:
+                            closest_slot_idx = matching_indices[0]
+                            max_avail = max(0, num_slots - task_vars[l_id]["total_duration_slots"])
+                            if closest_slot_idx <= max_avail:
+                                model.Add(task_vars[l_id]["is_scheduled"] == 1)
+                                model.Add(task_vars[l_id]["start"] == closest_slot_idx)
+                                logger.info(f"Lock Window: Freezing imminent task '{l_id}' at slot {closest_slot_idx} ({slots[closest_slot_idx]})")
+                except Exception as ex:
+                    logger.warning(f"Error locking block '{l_id}': {ex}")
+
+        # OPTIMIZED PER-DAY MAX TASKS CONSTRAINT (Zero per-slot Bools!)
         if self.max_tasks_per_day > 0:
             slots_by_day = defaultdict(list)
             for idx, slot_dt in enumerate(slots):
@@ -140,26 +162,24 @@ class Scheduler:
             for day_date, day_slot_indices in slots_by_day.items():
                 min_idx = min(day_slot_indices)
                 max_idx = max(day_slot_indices)
-                
                 day_starts = []
                 for t_id, info in task_vars.items():
                     is_on_day = model.NewBoolVar(f"on_day_{t_id}_{day_date}")
-                    
-                    # Create slot index indicator booleans for exact day matching
-                    slot_indicators = []
-                    for s_idx in day_slot_indices:
-                        is_at_s = model.NewBoolVar(f"start_at_{t_id}_{s_idx}")
-                        model.Add(info["start"] == s_idx).OnlyEnforceIf([info["is_scheduled"], is_at_s])
-                        model.Add(info["start"] != s_idx).OnlyEnforceIf(is_at_s.Not())
-                        slot_indicators.append(is_at_s)
-                    
-                    model.Add(sum(slot_indicators) == 1).OnlyEnforceIf(is_on_day)
-                    model.Add(sum(slot_indicators) == 0).OnlyEnforceIf(is_on_day.Not())
+                    c1 = model.NewBoolVar(f"c1_{t_id}_{day_date}")
+                    c2 = model.NewBoolVar(f"c2_{t_id}_{day_date}")
+
+                    model.Add(info["start"] >= min_idx).OnlyEnforceIf(c1)
+                    model.Add(info["start"] < min_idx).OnlyEnforceIf(c1.Not())
+                    model.Add(info["start"] <= max_idx).OnlyEnforceIf(c2)
+                    model.Add(info["start"] > max_idx).OnlyEnforceIf(c2.Not())
+
+                    model.AddBoolAnd([info["is_scheduled"], c1, c2]).OnlyEnforceIf(is_on_day)
+                    model.AddBoolOr([info["is_scheduled"].Not(), c1.Not(), c2.Not()]).OnlyEnforceIf(is_on_day.Not())
                     day_starts.append(is_on_day)
 
                 model.Add(sum(day_starts) <= self.max_tasks_per_day)
 
-        # BUG-3 FIX: Precompute exact max start index for due dates
+        # PRECOMPUTE DUE DATE BOUNDS
         for t_id, info in task_vars.items():
             t_due = info["due_naive"]
             if t_due and t_due > now:
@@ -197,6 +217,26 @@ class Scheduler:
             model.Add(earlier_score == (num_slots - start_var) * eff_prio * 20).OnlyEnforceIf(is_sched)
             model.Add(earlier_score == 0).OnlyEnforceIf(is_sched.Not())
             objective_terms.append(earlier_score)
+
+            # HIGH-ENERGY WINDOW BOOST (Linear scoring, 1 BoolVar per task!)
+            if t.energy == "high":
+                high_slot_indices = [
+                    i for i, s_dt in enumerate(slots)
+                    if config.scheduler.high_energy_start_hour <= s_dt.hour < config.scheduler.high_energy_end_hour
+                ]
+                if high_slot_indices:
+                    h_min, h_max = min(high_slot_indices), max(high_slot_indices)
+                    in_high_win = model.NewBoolVar(f"high_win_{t_id}")
+                    hc1 = model.NewBoolVar(f"hc1_{t_id}")
+                    hc2 = model.NewBoolVar(f"hc2_{t_id}")
+                    model.Add(start_var >= h_min).OnlyEnforceIf(hc1)
+                    model.Add(start_var < h_min).OnlyEnforceIf(hc1.Not())
+                    model.Add(start_var <= h_max).OnlyEnforceIf(hc2)
+                    model.Add(start_var > h_max).OnlyEnforceIf(hc2.Not())
+
+                    model.AddBoolAnd([is_sched, hc1, hc2]).OnlyEnforceIf(in_high_win)
+                    model.AddBoolOr([is_sched.Not(), hc1.Not(), hc2.Not()]).OnlyEnforceIf(in_high_win.Not())
+                    objective_terms.append(200 * in_high_win)
 
         model.Maximize(sum(objective_terms))
 
