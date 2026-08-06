@@ -73,7 +73,7 @@ def get_config():
         "work_start_hour": config.scheduler.work_start_hour,
         "work_end_hour": config.scheduler.work_end_hour,
         "buffer_minutes": config.scheduler.buffer_minutes,
-        "max_tasks_per_day": getattr(config.scheduler, "max_tasks_per_day", 5),
+        "max_tasks_per_day": getattr(config.scheduler, "max_tasks_per_day", 3),
         "high_energy_start_hour": config.scheduler.high_energy_start_hour,
         "high_energy_end_hour": config.scheduler.high_energy_end_hour,
     }
@@ -143,6 +143,12 @@ async def get_plan():
     tasks = []
     for t in raw_tasks:
         t.deferred_until = daemon_service.db.get_deferred_until(t.id)
+        # Apply SQLite DB priority overrides (clamped 1-5)
+        saved_prio = daemon_service.db.get_priority_override(t.id)
+        if saved_prio:
+            t.priority_score = max(1, min(5, saved_prio))
+        else:
+            t.priority_score = max(1, min(5, t.priority_score))
         tasks.append(t)
 
     estimated_tasks = [daemon_service.ai.estimate_task(t) for t in tasks]
@@ -164,6 +170,8 @@ async def add_task(req: AddTaskRequest, background_tasks: BackgroundTasks):
         notes=req.notes or "",
         list_name=config.google.tasks_list_name,
         priority_raw=req.priority_raw or 0,
+        priority_score=3,
+        created_at=datetime.now(),
     )
     final_id = daemon_service.gservices.add_custom_task(new_task)
     new_task.id = final_id
@@ -173,7 +181,7 @@ async def add_task(req: AddTaskRequest, background_tasks: BackgroundTasks):
 
 @app.post("/api/tasks/{task_id}/priority")
 async def update_task_priority(task_id: str, req: PriorityOverrideRequest):
-    prio = max(1, min(10, req.priority_score))
+    prio = max(1, min(5, req.priority_score))
     daemon_service.db.save_priority_override(task_id, prio)
     logger.info(f"Updated task '{task_id}' priority to P{prio}")
     

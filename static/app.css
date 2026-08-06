@@ -15,10 +15,6 @@
   
   --pastel-sage-bg: #cbdcb9;
   --pastel-sage-text: #2e441e;
-
-  --prio-p1-dot: #ef4444;
-  --prio-p5-dot: #f97316;
-  --prio-p10-dot: #10b981;
 }
 
 * {
@@ -39,7 +35,6 @@ body {
   padding: 24px;
 }
 
-/* Tablet Container Box */
 .tablet-frame {
   width: 100%;
   max-width: 1040px;
@@ -62,7 +57,6 @@ body {
   position: relative;
 }
 
-/* Top Executive Header */
 .executive-header {
   display: flex;
   justify-content: space-between;
@@ -127,7 +121,6 @@ body {
   transform: translateY(-1px);
 }
 
-/* Today's Flow Section */
 .flow-section {
   margin-bottom: 28px;
 }
@@ -159,7 +152,6 @@ body {
   transition: height 0.2s ease;
 }
 
-/* Gantt Block Pastels */
 .gantt-block-card {
   position: absolute;
   height: 48px;
@@ -205,7 +197,6 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Workload Agenda Section */
 .agenda-section {
   margin-bottom: 24px;
 }
@@ -233,7 +224,6 @@ body {
   gap: 10px;
 }
 
-/* Category Headers */
 .agenda-category-title {
   font-size: 12.5px;
   font-weight: 700;
@@ -244,7 +234,6 @@ body {
   letter-spacing: 0.5px;
 }
 
-/* Task Item Card Pill */
 .card-item {
   background: var(--card-white);
   border: 1px solid var(--border-light);
@@ -288,7 +277,7 @@ body {
   gap: 8px;
 }
 
-/* Priority Dropdown Select Pill */
+/* Priority Select Dropdown (P1 ASAP -> P5 Tracking) */
 .prio-select-dropdown {
   background: #f4efe6;
   border: 1px solid var(--border-light);
@@ -307,16 +296,28 @@ body {
   color: #dc2626;
 }
 
-.prio-select-dropdown.p5 {
+.prio-select-dropdown.p2 {
   background: rgba(249, 115, 22, 0.12);
   border-color: rgba(249, 115, 22, 0.3);
   color: #ea580c;
 }
 
-.prio-select-dropdown.p10 {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.3);
-  color: #059669;
+.prio-select-dropdown.p3 {
+  background: rgba(217, 119, 6, 0.12);
+  border-color: rgba(217, 119, 6, 0.3);
+  color: #d97706;
+}
+
+.prio-select-dropdown.p4 {
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.3);
+  color: #2563eb;
+}
+
+.prio-select-dropdown.p5 {
+  background: rgba(107, 114, 128, 0.12);
+  border-color: rgba(107, 114, 128, 0.3);
+  color: #4b5563;
 }
 
 .btn-complete-circle {
@@ -356,7 +357,6 @@ body {
   color: var(--text-dark);
 }
 
-/* Bottom Floating Bar */
 .bottom-action-bar {
   position: absolute;
   bottom: 24px;
@@ -399,7 +399,6 @@ body {
   box-shadow: 0 12px 24px rgba(0,0,0,0.1);
 }
 
-/* Modals */
 .modal-overlay {
   position: fixed;
   inset: 0;

@@ -3,30 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monga Cal</title>
+  <title>Monga Cal — Executive Workload Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css?v=2">
 </head>
 <body>
+
   <div class="tablet-frame">
-    <!-- Top Warm Wood Grain Accent Bar -->
     <div class="wood-trim"></div>
-
     <div class="tablet-content">
-      <!-- Header Section -->
-      <header class="executive-header">
-        <div class="brand-title">Monga Cal</div>
 
+      <!-- Top Executive Header -->
+      <header class="executive-header">
+        <div>
+          <h1 class="brand-title">Monga Cal</h1>
+        </div>
+        
         <div class="live-clock-widget">
-          <div class="clock-time" id="clockTime">10:27 <span class="clock-ampm">PM</span></div>
-          <div class="clock-date" id="clockDate">Tuesday, Sep 3 • Evening</div>
+          <div class="clock-time" id="clockTime">--:--</div>
+          <div class="clock-date" id="clockDate">--</div>
         </div>
 
         <div class="header-right-actions">
-          <button class="icon-pill-btn" id="openSettingsBtn" title="Settings">⚙️</button>
-          <button class="icon-pill-btn" id="rescheduleBtn" title="Re-Solve">⚡</button>
+          <button class="icon-pill-btn" id="openSettingsBtn" title="Schedule Settings">⚙️</button>
+          <button class="icon-pill-btn" id="rescheduleBtn" title="Reschedule Plan">⚡</button>
         </div>
       </header>
 
@@ -34,37 +36,53 @@
       <section class="flow-section">
         <div class="gantt-wrapper">
           <div class="gantt-time-scale" id="ganttTimeScale"></div>
-          <div class="gantt-tracks-container" id="ganttTracks">
-            <div class="gantt-loading">
-              <div class="glow-spinner"></div>
-            </div>
-          </div>
+          <div class="gantt-tracks-container" id="ganttTracks"></div>
         </div>
       </section>
 
-      <!-- Workload • Agenda Section -->
+      <!-- Workload Agenda Section -->
       <section class="agenda-section">
         <div class="agenda-title-header">
           <h2>Workload • Agenda</h2>
-          <p class="agenda-subtitle" id="agendaTaskCount">0 tasks scheduled today</p>
+          <p class="agenda-subtitle" id="agendaTaskCount">Loading tasks...</p>
         </div>
 
         <div class="agenda-cards-grid" id="agendaTimeline">
-          <div class="loading-state">
-            <div class="spinner"></div>
-          </div>
+          <!-- Dynamic Task Item Cards -->
         </div>
       </section>
 
-      <!-- Bottom Floating Action Bar -->
-      <footer class="bottom-action-bar">
+      <!-- Floating Action Buttons -->
+      <div class="bottom-action-bar">
         <button class="floating-action-btn primary" id="openAddTaskBtn">
           <span>+</span> Add Task
         </button>
         <button class="floating-action-btn secondary" id="reSolveBottomBtn">
           ⚡ Re-Solve
         </button>
-      </footer>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Add Task Modal -->
+  <div class="modal-overlay" id="addTaskModal">
+    <div class="modal-container">
+      <div class="modal-head">
+        <h3>Add New Task</h3>
+      </div>
+      <div class="form-group">
+        <label class="label-title">Task Title</label>
+        <input type="text" class="custom-input" id="newTaskTitleInput" placeholder="e.g. Schedule passport appointment">
+      </div>
+      <div class="form-group">
+        <label class="label-title">Notes / Directive (Optional)</label>
+        <textarea class="custom-input custom-textarea" id="newTaskNotesInput" placeholder="Add extra context or urgency..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="cancelAddTaskBtn">Cancel</button>
+        <button class="btn-submit" id="saveAddTaskBtn">Create Task</button>
+      </div>
     </div>
   </div>
 
@@ -74,69 +92,41 @@
       <div class="modal-head">
         <h3>Schedule Settings</h3>
       </div>
-
       <div class="form-group">
         <label class="label-title">Active Days</label>
-        <div class="day-selector-grid">
-          <button class="day-chip active" data-day="0">Mon</button>
-          <button class="day-chip active" data-day="1">Tue</button>
-          <button class="day-chip active" data-day="2">Wed</button>
-          <button class="day-chip active" data-day="3">Thu</button>
-          <button class="day-chip active" data-day="4">Fri</button>
-          <button class="day-chip active" data-day="5">Sat</button>
-          <button class="day-chip active" data-day="6">Sun</button>
+        <div class="day-selector-grid" id="daySelectorGrid">
+          <button class="day-chip" data-day="0">Mon</button>
+          <button class="day-chip" data-day="1">Tue</button>
+          <button class="day-chip" data-day="2">Wed</button>
+          <button class="day-chip" data-day="3">Thu</button>
+          <button class="day-chip" data-day="4">Fri</button>
+          <button class="day-chip" data-day="5">Sat</button>
+          <button class="day-chip" data-day="6">Sun</button>
         </div>
       </div>
-
       <div class="form-grid-2">
         <div class="form-group">
-          <label class="label-title">Start Hour (24h)</label>
-          <input type="number" id="workStartHourInput" class="custom-input" min="0" max="23" value="8">
+          <label class="label-title">Work Start Hour (24h)</label>
+          <input type="number" class="custom-input" id="workStartHourInput" min="0" max="23">
         </div>
         <div class="form-group">
-          <label class="label-title">End Hour (24h)</label>
-          <input type="number" id="workEndHourInput" class="custom-input" min="1" max="24" value="21">
+          <label class="label-title">Work End Hour (24h)</label>
+          <input type="number" class="custom-input" id="workEndHourInput" min="0" max="24">
         </div>
       </div>
-
       <div class="form-grid-2">
         <div class="form-group">
-          <label class="label-title">Task Buffer (Mins)</label>
-          <input type="number" id="bufferMinutesInput" class="custom-input" min="0" max="60" value="10">
+          <label class="label-title">Buffer Minutes</label>
+          <input type="number" class="custom-input" id="bufferMinutesInput" min="0" max="60">
         </div>
         <div class="form-group">
           <label class="label-title">Max Tasks / Day</label>
-          <input type="number" id="maxTasksPerDayInput" class="custom-input" min="1" max="20" value="5">
+          <input type="number" class="custom-input" id="maxTasksPerDayInput" min="1" max="20">
         </div>
       </div>
-
       <div class="modal-actions">
         <button class="btn-cancel" id="cancelSettingsBtn">Cancel</button>
-        <button class="btn-submit" id="saveSettingsBtn">Save & Solve</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Add Task Modal -->
-  <div class="modal-overlay" id="addTaskModal">
-    <div class="modal-container">
-      <div class="modal-head">
-        <h3>Add Task</h3>
-      </div>
-
-      <div class="form-group">
-        <label class="label-title">Task Title</label>
-        <input type="text" id="newTaskTitleInput" class="custom-input" placeholder="e.g. Pay bills">
-      </div>
-
-      <div class="form-group">
-        <label class="label-title">Notes (Optional)</label>
-        <textarea id="newTaskNotesInput" class="custom-input custom-textarea" placeholder="Details..."></textarea>
-      </div>
-
-      <div class="modal-actions">
-        <button class="btn-cancel" id="cancelAddTaskBtn">Cancel</button>
-        <button class="btn-submit" id="saveAddTaskBtn">Add Task</button>
+        <button class="btn-submit" id="saveSettingsBtn">Save Settings</button>
       </div>
     </div>
   </div>
@@ -145,31 +135,26 @@
   <div class="modal-overlay" id="completionModal">
     <div class="modal-container">
       <div class="modal-head">
-        <h3>Log Task Duration</h3>
+        <h3>Complete Task</h3>
+        <p class="agenda-subtitle" id="modalTaskTitle">Task Title</p>
       </div>
-
-      <div class="task-name-display" id="modalTaskTitle">Task Title</div>
-
-      <div class="duration-input-box">
-        <input type="number" id="actualMinutesInput" min="5" max="360" value="30">
-        <span class="unit">mins</span>
+      <div class="form-group" style="margin-top: 16px;">
+        <label class="label-title">Actual Time Spent (Minutes)</label>
+        <input type="number" class="custom-input" id="actualMinutesInput" value="30">
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button class="day-chip quick-chip" data-min="15">15m</button>
+          <button class="day-chip quick-chip" data-min="30">30m</button>
+          <button class="day-chip quick-chip" data-min="45">45m</button>
+          <button class="day-chip quick-chip" data-min="60">60m</button>
+        </div>
       </div>
-
-      <div class="quick-chips">
-        <button class="quick-chip" data-min="15">15m</button>
-        <button class="quick-chip" data-min="25">25m</button>
-        <button class="quick-chip" data-min="30">30m</button>
-        <button class="quick-chip" data-min="45">45m</button>
-        <button class="quick-chip" data-min="60">60m</button>
-      </div>
-
       <div class="modal-actions">
         <button class="btn-cancel" id="cancelModalBtn">Cancel</button>
-        <button class="btn-submit btn-emerald" id="confirmCompleteBtn">Log & Complete</button>
+        <button class="btn-submit" id="confirmCompleteBtn">Mark Complete</button>
       </div>
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>

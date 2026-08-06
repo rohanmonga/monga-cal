@@ -2,7 +2,7 @@ const API_BASE = '';
 
 let currentTasks = [];
 let currentSchedule = { blocks: [], unscheduled_task_ids: [], solver_stats: {} };
-let currentConfig = { active_days: [0, 1, 2, 3, 4, 5, 6], work_start_hour: 8, work_end_hour: 21, buffer_minutes: 10, max_tasks_per_day: 5 };
+let currentConfig = { active_days: [0, 1, 2, 3, 4], work_start_hour: 10, work_end_hour: 17, buffer_minutes: 10, max_tasks_per_day: 3 };
 let completingTaskId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -113,7 +113,6 @@ async function fetchPlan() {
   }
 }
 
-// SMART DYNAMIC GANTT PACKING WITH PACKED TRACKS
 function renderGanttChart() {
   const ganttTracks = document.getElementById('ganttTracks');
   const ganttTimeScale = document.getElementById('ganttTimeScale');
@@ -132,7 +131,6 @@ function renderGanttChart() {
     return;
   }
 
-  // 1. Calculate dynamic time range from actual scheduled blocks
   let minStart = Math.min(...todayBlocks.map(b => new Date(b.start).getTime()));
   let maxEnd = Math.max(...todayBlocks.map(b => new Date(b.end).getTime()));
 
@@ -145,7 +143,6 @@ function renderGanttChart() {
 
   const totalMinutes = (endHour - startHour) * 60;
 
-  // Render Time Scale Ticks
   for (let h = startHour; h <= endHour; h += 1) {
     const timeLabel = document.createElement('span');
     const displayHour = h % 12 === 0 ? 12 : h % 12;
@@ -154,12 +151,9 @@ function renderGanttChart() {
     ganttTimeScale.appendChild(timeLabel);
   }
 
-  // 2. Algorithmically Pack Blocks Into Non-Overlapping Tracks
   const tracks = [];
   todayBlocks.forEach(b => {
     const bStart = new Date(b.start).getTime();
-    const bEnd = new Date(b.end).getTime();
-
     let placedTrack = -1;
     for (let tIdx = 0; tIdx < tracks.length; tIdx++) {
       const lastInTrack = tracks[tIdx][tracks[tIdx].length - 1];
@@ -299,9 +293,13 @@ function createAgendaCard(task, block) {
     timeHtml = `<div class="card-left-time">🌙<br>${task.deferred_until}</div>`;
   }
 
-  let prioClass = 'p5';
-  if (task.priority_score === 1) prioClass = 'p1';
-  else if (task.priority_score >= 10) prioClass = 'p10';
+  // Strictly clamp priority to 1-5 scale (1: ASAP, 2: High, 3: Regular, 4: Next Week, 5: Tracking)
+  let rawPrio = task.priority_score || 3;
+  if (rawPrio > 5) {
+    rawPrio = 3; // Normalize legacy 1-10 priorities to 3 (Regular)
+  }
+  rawPrio = Math.max(1, Math.min(5, rawPrio));
+  let prioClass = `p${rawPrio}`;
 
   card.innerHTML = `
     ${timeHtml}
@@ -311,16 +309,11 @@ function createAgendaCard(task, block) {
       <button class="btn-direct-snooze" onclick="deferTaskDirect('${task.id}', 7)" title="Snooze Next Week">📅 Next Week</button>
       
       <select class="prio-select-dropdown ${prioClass}" onchange="updateTaskPriority('${task.id}', this.value)">
-        <option value="1" ${task.priority_score === 1 ? 'selected' : ''}>P1 (Urgent)</option>
-        <option value="2" ${task.priority_score === 2 ? 'selected' : ''}>P2</option>
-        <option value="3" ${task.priority_score === 3 ? 'selected' : ''}>P3</option>
-        <option value="4" ${task.priority_score === 4 ? 'selected' : ''}>P4</option>
-        <option value="5" ${task.priority_score === 5 ? 'selected' : ''}>P5 (Normal)</option>
-        <option value="6" ${task.priority_score === 6 ? 'selected' : ''}>P6</option>
-        <option value="7" ${task.priority_score === 7 ? 'selected' : ''}>P7</option>
-        <option value="8" ${task.priority_score === 8 ? 'selected' : ''}>P8</option>
-        <option value="9" ${task.priority_score === 9 ? 'selected' : ''}>P9</option>
-        <option value="10" ${task.priority_score === 10 ? 'selected' : ''}>P10 (Low)</option>
+        <option value="1" ${rawPrio === 1 ? 'selected' : ''}>P1 (ASAP)</option>
+        <option value="2" ${rawPrio === 2 ? 'selected' : ''}>P2 (High)</option>
+        <option value="3" ${rawPrio === 3 ? 'selected' : ''}>P3 (Regular)</option>
+        <option value="4" ${rawPrio === 4 ? 'selected' : ''}>P4 (Next Week)</option>
+        <option value="5" ${rawPrio === 5 ? 'selected' : ''}>P5 (Tracking)</option>
       </select>
 
       <button class="btn-complete-circle" onclick="openCompletionModal('${task.id}', '${escapeHtml(task.title)}', ${task.estimated_minutes || 30})" title="Complete Task">✓</button>
@@ -416,12 +409,12 @@ async function saveAddTask() {
 }
 
 function populateSettingsForm() {
-  document.getElementById('workStartHourInput').value = currentConfig.work_start_hour || 8;
-  document.getElementById('workEndHourInput').value = currentConfig.work_end_hour || 21;
+  document.getElementById('workStartHourInput').value = currentConfig.work_start_hour || 10;
+  document.getElementById('workEndHourInput').value = currentConfig.work_end_hour || 17;
   document.getElementById('bufferMinutesInput').value = currentConfig.buffer_minutes || 10;
-  document.getElementById('maxTasksPerDayInput').value = currentConfig.max_tasks_per_day || 5;
+  document.getElementById('maxTasksPerDayInput').value = currentConfig.max_tasks_per_day || 3;
 
-  const activeDays = currentConfig.active_days || [0,1,2,3,4,5,6];
+  const activeDays = currentConfig.active_days || [0, 1, 2, 3, 4];
   document.querySelectorAll('.day-chip').forEach(chip => {
     const day = parseInt(chip.dataset.day, 10);
     if (activeDays.includes(day)) chip.classList.add('active');

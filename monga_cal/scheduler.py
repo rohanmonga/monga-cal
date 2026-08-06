@@ -24,7 +24,7 @@ class Scheduler:
         self.work_end_hour = work_end_hour if work_end_hour is not None else config.scheduler.work_end_hour
         self.buffer_minutes = buffer_minutes if buffer_minutes is not None else config.scheduler.buffer_minutes
         self.active_days = active_days if active_days is not None else config.scheduler.active_days
-        self.max_tasks_per_day = max_tasks_per_day if max_tasks_per_day is not None else getattr(config.scheduler, "max_tasks_per_day", 5)
+        self.max_tasks_per_day = max_tasks_per_day if max_tasks_per_day is not None else getattr(config.scheduler, "max_tasks_per_day", 3)
 
     def solve(
         self,
@@ -115,7 +115,15 @@ class Scheduler:
                 start_var, total_duration_slots, end_var, is_scheduled, f"interval_{t.id}"
             )
 
+            # Calculate or derive deadline based on creation time & priority score
+            t_created = (t.created_at.replace(tzinfo=None) if (t.created_at and t.created_at.tzinfo) else t.created_at) or now
             t_due = t.due.replace(tzinfo=None) if (t.due and t.due.tzinfo) else t.due
+
+            if not t_due:
+                # Set default deadline based on initial priority (1-5 scale)
+                prio_val = max(1, min(5, t.priority_score))
+                deadline_days_map = {1: 1, 2: 3, 3: 5, 4: 7, 5: 14}
+                t_due = t_created + timedelta(days=deadline_days_map.get(prio_val, 5))
 
             task_vars[t.id] = {
                 "task": t,
@@ -179,20 +187,6 @@ class Scheduler:
 
                 model.Add(sum(day_starts) <= self.max_tasks_per_day)
 
-        # PRECOMPUTE DUE DATE BOUNDS
-        for t_id, info in task_vars.items():
-            t_due = info["due_naive"]
-            if t_due and t_due > now:
-                max_start_idx = -1
-                for idx, slot_dt in enumerate(slots):
-                    slot_finish = slot_dt + timedelta(minutes=info["num_req_slots"] * SLOT_MINUTES)
-                    if slot_finish <= t_due:
-                        max_start_idx = idx
-                if max_start_idx >= 0:
-                    model.Add(info["start"] <= max_start_idx).OnlyEnforceIf(info["is_scheduled"])
-                else:
-                    model.Add(info["is_scheduled"] == 0)
-
         # SOFT OBJECTIVES
         objective_terms = []
 
@@ -202,19 +196,33 @@ class Scheduler:
             is_sched = info["is_scheduled"]
             start_var = info["start"]
 
-            hours_until_due = 100.0
+            # Priority 1-5 scale (1 is highest/ASAP, 5 is lowest/Tracking)
+            raw_prio = max(1, min(5, t.priority_score))
+
+            # Dynamic Priority Escalation as Deadline Draws Closer:
+            days_until_due = 10.0
             if t_due:
-                delta = (t_due - now).total_seconds() / 3600.0
-                hours_until_due = max(0.1, delta)
+                days_until_due = (t_due - now).total_seconds() / 86400.0
 
-            urgency = 10.0 if (t_due and t_due <= now) else 10.0 / (hours_until_due + 1.0)
-            eff_prio = max(1, min(10, 11 - t.priority_score))
+            # Escalation logic:
+            if days_until_due <= 1.0:
+                effective_prio_val = 1 # Escalates to P1 ASAP
+            elif days_until_due <= 3.0:
+                effective_prio_val = max(1, raw_prio - 2) # Escalates by 2 levels
+            elif days_until_due <= 5.0:
+                effective_prio_val = max(1, raw_prio - 1) # Escalates by 1 level
+            else:
+                effective_prio_val = raw_prio
 
-            base_score = int(eff_prio * 1000 * urgency)
+            # Convert 1-5 priority to 1-5 weight (P1 -> weight 5, P5 -> weight 1)
+            eff_prio_weight = max(1, min(5, 6 - effective_prio_val))
+
+            urgency_factor = 10.0 if (t_due and t_due <= now) else (10.0 / (max(0.1, days_until_due) + 1.0))
+            base_score = int(eff_prio_weight * 1000 * urgency_factor)
             objective_terms.append(base_score * is_sched)
 
             earlier_score = model.NewIntVar(-100000, 100000, f"earlier_{t_id}")
-            model.Add(earlier_score == (num_slots - start_var) * eff_prio * 20).OnlyEnforceIf(is_sched)
+            model.Add(earlier_score == (num_slots - start_var) * eff_prio_weight * 20).OnlyEnforceIf(is_sched)
             model.Add(earlier_score == 0).OnlyEnforceIf(is_sched.Not())
             objective_terms.append(earlier_score)
 
