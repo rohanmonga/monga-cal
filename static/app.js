@@ -420,7 +420,6 @@ function createAgendaCard(task, block) {
     </div>
     <div class="card-right-controls">
       <button class="btn-direct-snooze" onclick="deferTaskDirect('${task.id}', 1)" title="Snooze Tomorrow">🌙 Tomorrow</button>
-      <button class="btn-direct-snooze" onclick="deferTaskDirect('${task.id}', 7)" title="Snooze Next Week">📅 Next Week</button>
       
       <select class="prio-select-dropdown ${prioClass}" onchange="updateTaskPriority('${task.id}', this.value)">
         <option value="1" ${rawPrio === 1 ? 'selected' : ''}>P1 (ASAP)</option>
