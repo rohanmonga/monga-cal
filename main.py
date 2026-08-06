@@ -71,6 +71,7 @@ def get_config():
         "work_start_hour": config.scheduler.work_start_hour,
         "work_end_hour": config.scheduler.work_end_hour,
         "buffer_minutes": config.scheduler.buffer_minutes,
+        "max_tasks_per_day": getattr(config.scheduler, "max_tasks_per_day", 5),
         "high_energy_start_hour": config.scheduler.high_energy_start_hour,
         "high_energy_end_hour": config.scheduler.high_energy_end_hour,
     }
@@ -81,6 +82,7 @@ async def update_config(req: ScheduleSettingsRequest, background_tasks: Backgrou
     config.scheduler.work_start_hour = req.work_start_hour
     config.scheduler.work_end_hour = req.work_end_hour
     config.scheduler.buffer_minutes = req.buffer_minutes
+    config.scheduler.max_tasks_per_day = req.max_tasks_per_day
     config.scheduler.high_energy_start_hour = req.high_energy_start_hour
     config.scheduler.high_energy_end_hour = req.high_energy_end_hour
     
@@ -89,6 +91,7 @@ async def update_config(req: ScheduleSettingsRequest, background_tasks: Backgrou
         "work_start_hour": req.work_start_hour,
         "work_end_hour": req.work_end_hour,
         "buffer_minutes": req.buffer_minutes,
+        "max_tasks_per_day": req.max_tasks_per_day,
         "high_energy_start_hour": req.high_energy_start_hour,
         "high_energy_end_hour": req.high_energy_end_hour,
     }

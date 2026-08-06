@@ -24,6 +24,7 @@ class SchedulerConfig(BaseModel):
     work_start_hour: int = 8
     work_end_hour: int = 21
     buffer_minutes: int = 10
+    max_tasks_per_day: int = 5
     min_block_minutes: int = 15
     high_energy_start_hour: int = 9
     high_energy_end_hour: int = 12
@@ -61,7 +62,7 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
     ai_data = config_data.get("ai", {})
     daemon_data = config_data.get("daemon", {})
 
-    # Check if DB contains saved scheduler settings (for 100% Docker container persistence)
+    # Check if DB contains saved scheduler settings (for 100% Docker volume persistence)
     try:
         from db import Database
         db_path = daemon_data.get("db_path", "monga_cal.db")

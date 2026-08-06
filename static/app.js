@@ -1,393 +1,506 @@
-let activeTaskToComplete = null;
-let currentConfig = {
-  active_days: [0, 1, 2, 3, 4, 5, 6],
-  work_start_hour: 8,
-  work_end_hour: 21,
-  buffer_minutes: 10,
-  high_energy_start_hour: 9,
-  high_energy_end_hour: 12
-};
+document.addEventListener('DOMContentLoaded', () => {
+  let appState = {
+    planData: null,
+    completingTask: null,
+    activeDays: [0, 1, 2, 3, 4, 5, 6],
+    workStartHour: 8,
+    workEndHour: 21,
+    bufferMinutes: 10,
+    maxTasksPerDay: 5,
+    highEnergyStart: 9,
+    highEnergyEnd: 12,
+  };
 
-// Clock updates
-function updateClock() {
-  const now = new Date();
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  document.getElementById('clockTime').textContent = `${hours}:${minutes}`;
-
-  const options = { weekday: 'short', month: 'short', day: 'numeric' };
-  document.getElementById('clockDate').textContent = now.toLocaleDateString('en-US', options);
-}
-setInterval(updateClock, 1000);
-updateClock();
-
-// API calls
-async function fetchPlan() {
-  try {
-    const res = await fetch('/api/plan');
-    if (!res.ok) throw new Error('Failed to fetch plan');
-    const data = await res.json();
-    if (data.config) {
-      currentConfig = data.config;
+  // Clock Widget
+  function updateClock() {
+    const now = new Date();
+    const clockTime = document.getElementById('clockTime');
+    const clockDate = document.getElementById('clockDate');
+    
+    if (clockTime) {
+      clockTime.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
-    renderGanttChart(data.schedule);
-    renderSchedule(data.schedule);
-  } catch (err) {
-    console.error(err);
-    document.getElementById('agendaTimeline').innerHTML = '<div class="loading-state">Error connecting to Monga Cal server.</div>';
-    document.getElementById('ganttTracks').innerHTML = '<div class="gantt-loading">Error connecting to Gantt Engine.</div>';
+    if (clockDate) {
+      clockDate.textContent = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    }
   }
-}
+  setInterval(updateClock, 1000);
+  updateClock();
 
-// RENDER COMPACT GANTT CHART TIMELINE VIEW
-function renderGanttChart(schedule) {
-  const timeScaleEl = document.getElementById('ganttTimeScale');
-  const tracksEl = document.getElementById('ganttTracks');
-  const blocks = schedule?.blocks || [];
-
-  const startHour = currentConfig.work_start_hour || 8;
-  const endHour = currentConfig.work_end_hour || 21;
-  const totalWorkMins = (endHour - startHour) * 60;
-
-  // 1. Render Time Scale Ticks
-  let timeScaleHtml = '';
-  for (let h = startHour; h <= endHour; h++) {
-    const timeLabel = `${String(h).padStart(2, '0')}:00`;
-    timeScaleHtml += `<div class="gantt-hour-tick">${timeLabel}</div>`;
-  }
-  timeScaleEl.innerHTML = timeScaleHtml;
-
-  if (blocks.length === 0) {
-    tracksEl.innerHTML = '<div class="gantt-loading">No tasks scheduled on Gantt timeline today.</div>';
-    return;
+  // API Fetch
+  async function fetchPlan() {
+    try {
+      const res = await fetch('/api/plan');
+      if (!res.ok) throw new Error('API Error');
+      const data = await res.json();
+      appState.planData = data;
+      
+      if (data.config) {
+        appState.activeDays = data.config.active_days || [0, 1, 2, 3, 4, 5, 6];
+        appState.workStartHour = data.config.work_start_hour || 8;
+        appState.workEndHour = data.config.work_end_hour || 21;
+        appState.bufferMinutes = data.config.buffer_minutes || 10;
+        appState.maxTasksPerDay = data.config.max_tasks_per_day || 5;
+      }
+      
+      renderDashboard(data);
+    } catch (err) {
+      console.error('Failed to load plan:', err);
+    }
   }
 
-  // 2. Render Current Time Red Indicator Bar
-  const now = new Date();
-  let nowIndicatorHtml = '';
-  const nowHour = now.getHours() + (now.getMinutes() / 60);
-  if (nowHour >= startHour && nowHour <= endHour) {
-    const nowMinsFromStart = (nowHour - startHour) * 60;
-    const nowPercent = Math.min(100, Math.max(0, (nowMinsFromStart / totalWorkMins) * 100));
-    nowIndicatorHtml = `<div class="gantt-now-line" style="left: ${nowPercent}%;"></div>`;
+  function renderDashboard(data) {
+    updateSolverFooter(data);
+    renderGanttChart(data);
+    renderAgenda(data);
   }
 
-  // 3. Render Gantt Rows & Bars
-  let tracksHtml = nowIndicatorHtml;
+  function updateSolverFooter(data) {
+    const stats = data.schedule?.solver_stats || {};
+    document.getElementById('solverEngine').textContent = stats.engine || 'OR-Tools CP-SAT';
+    document.getElementById('solverStatus').textContent = stats.status || 'OPTIMAL';
+    document.getElementById('solverTime').textContent = `${stats.solve_time_sec || 0.005}s`;
+    document.getElementById('solverMaxTasks').textContent = data.config?.max_tasks_per_day || 5;
+    document.getElementById('solverHours').textContent = `${data.config?.work_start_hour || 8}:00 - ${data.config?.work_end_hour || 21}:00`;
+  }
 
-  blocks.forEach(b => {
-    const dtStart = new Date(b.start);
-    const dtEnd = new Date(b.end);
+  // PACKED GANTT TIMELINE (NO WATERFALL SLOP)
+  function renderGanttChart(data) {
+    const scaleContainer = document.getElementById('ganttTimeScale');
+    const tracksContainer = document.getElementById('ganttTracks');
+    if (!scaleContainer || !tracksContainer) return;
 
-    const startMinsFromWork = ((dtStart.getHours() * 60) + dtStart.getMinutes()) - (startHour * 60);
-    const durationMins = b.estimated_minutes || 30;
+    scaleContainer.innerHTML = '';
+    tracksContainer.innerHTML = '';
 
-    const leftPercent = Math.min(100, Math.max(0, (startMinsFromWork / totalWorkMins) * 100));
-    const widthPercent = Math.min(100 - leftPercent, Math.max(2, (durationMins / totalWorkMins) * 100));
+    const startH = appState.workStartHour;
+    const endH = appState.workEndHour;
+    const totalHours = endH - startH;
 
-    const timeRangeStr = `${dtStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${dtEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    // Render Hour Ticks
+    for (let h = startH; h <= endH; h++) {
+      const tick = document.createElement('div');
+      tick.className = 'gantt-hour-tick';
+      tick.textContent = `${h.toString().padStart(2, '0')}:00`;
+      scaleContainer.appendChild(tick);
+    }
 
-    tracksHtml += `
-      <div class="gantt-row">
-        <div class="gantt-row-label" title="${escapeHtml(b.task_title)}">${escapeHtml(b.task_title)}</div>
-        <div class="gantt-track-area">
-          <div class="gantt-block" style="left: ${leftPercent}%; width: ${widthPercent}%;" title="${escapeHtml(b.task_title)} (${timeRangeStr}) - P${b.priority_score}">
-            <span>${escapeHtml(b.task_title)}</span>
-            <span style="opacity: 0.85; font-size: 10.5px;">P${b.priority_score} | ${timeRangeStr}</span>
-          </div>
+    const blocks = data.schedule?.blocks || [];
+    if (blocks.length === 0) {
+      tracksContainer.innerHTML = '<div style="padding:15px; text-align:center; color:#64748b;">No scheduled blocks for today</div>';
+      return;
+    }
+
+    // Convert blocks to timeline minutes relative to startH
+    const parsedBlocks = blocks.map(b => {
+      const s = new Date(b.start);
+      const e = new Date(b.end);
+      const startMin = (s.getHours() - startH) * 60 + s.getMinutes();
+      const endMin = (e.getHours() - startH) * 60 + e.getMinutes();
+      return { ...b, startMin, endMin };
+    });
+
+    // Pack non-overlapping blocks into horizontal lane tracks
+    const lanes = [];
+    parsedBlocks.forEach(block => {
+      let placed = false;
+      for (let l = 0; l < lanes.length; l++) {
+        const lastInLane = lanes[l][lanes[l].length - 1];
+        if (block.startMin >= lastInLane.endMin) {
+          lanes[l].push(block);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        lanes.push([block]);
+      }
+    });
+
+    const totalWindowMin = totalHours * 60;
+
+    // Render packed lane tracks
+    lanes.forEach(lane => {
+      const trackLane = document.createElement('div');
+      trackLane.className = 'gantt-track-lane';
+
+      lane.forEach(b => {
+        const leftPct = Math.max(0, (b.startMin / totalWindowMin) * 100);
+        const widthPct = Math.min(100 - leftPct, ((b.endMin - b.startMin) / totalWindowMin) * 100);
+
+        const el = document.createElement('div');
+        el.className = 'gantt-block';
+        el.style.left = `${leftPct}%`;
+        el.style.width = `${widthPct}%`;
+
+        const sTime = new Date(b.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        el.textContent = `${sTime} ${b.task_title}`;
+        el.title = `${b.task_title} (${b.estimated_minutes}m) [P${b.priority_score}]`;
+
+        el.addEventListener('click', () => {
+          openCompleteModal({
+            id: b.task_id,
+            title: b.task_title,
+            estimated_minutes: b.estimated_minutes,
+          });
+        });
+
+        trackLane.appendChild(el);
+      });
+
+      tracksContainer.appendChild(trackLane);
+    });
+
+    // Add Live Red "NOW" Line Indicator
+    const now = new Date();
+    const nowHour = now.getHours();
+    if (nowHour >= startH && nowHour < endH) {
+      const nowMin = (nowHour - startH) * 60 + now.getMinutes();
+      const nowPct = (nowMin / totalWindowMin) * 100;
+      const nowLine = document.createElement('div');
+      nowLine.className = 'gantt-now-line';
+      nowLine.style.left = `${nowPct}%`;
+      tracksContainer.appendChild(nowLine);
+    }
+  }
+
+  // WORKLOAD AGENDA — SHOW EVERYTHING ACROSS ALL CATEGORIES
+  function renderAgenda(data) {
+    const agendaTimeline = document.getElementById('agendaTimeline');
+    const badgeCounter = document.getElementById('scheduleCountBadge');
+    if (!agendaTimeline) return;
+
+    agendaTimeline.innerHTML = '';
+
+    const allTasks = data.tasks || [];
+    const scheduledBlocks = data.schedule?.blocks || [];
+    const scheduledTaskIds = new Set(scheduledBlocks.map(b => b.task_id));
+
+    if (badgeCounter) {
+      badgeCounter.innerHTML = `<span class="dot-live"></span> ${allTasks.length} Total Tasks`;
+    }
+
+    if (allTasks.length === 0) {
+      agendaTimeline.innerHTML = '<div style="padding:20px; text-align:center; color:#64748b;">No pending tasks in Google Tasks!</div>';
+      return;
+    }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Categorize tasks
+    const activeTodayTasks = [];
+    const queuedTasks = [];
+    const deferredTasks = [];
+
+    allTasks.forEach(t => {
+      if (t.deferred_until && t.deferred_until >= todayStr) {
+        deferredTasks.push(t);
+      } else if (scheduledTaskIds.has(t.id)) {
+        const block = scheduledBlocks.find(b => b.task_id === t.id);
+        activeTodayTasks.push({ ...t, block });
+      } else {
+        queuedTasks.push(t);
+      }
+    });
+
+    // Render Section 1: Today's Active Schedule
+    if (activeTodayTasks.length > 0) {
+      renderCategoryHeader(agendaTimeline, '⚡ SCHEDULED TODAY', activeTodayTasks.length, 'var(--cyan)');
+      activeTodayTasks.forEach(item => {
+        agendaTimeline.appendChild(createTaskCard(item, 'active'));
+      });
+    }
+
+    // Render Section 2: Upcoming / Queued Tasks
+    if (queuedTasks.length > 0) {
+      renderCategoryHeader(agendaTimeline, '📋 QUEUED / UPCOMING', queuedTasks.length, 'var(--text-secondary)');
+      queuedTasks.forEach(item => {
+        agendaTimeline.appendChild(createTaskCard(item, 'queued'));
+      });
+    }
+
+    // Render Section 3: Snoozed / Deferred Tasks
+    if (deferredTasks.length > 0) {
+      renderCategoryHeader(agendaTimeline, '🌙 SNOOZED / DEFERRED', deferredTasks.length, 'var(--amber)');
+      deferredTasks.forEach(item => {
+        agendaTimeline.appendChild(createTaskCard(item, 'deferred'));
+      });
+    }
+  }
+
+  function renderCategoryHeader(container, title, count, color) {
+    const div = document.createElement('div');
+    div.className = 'agenda-category-title';
+    div.style.color = color;
+    div.innerHTML = `${title} <span class="count-pill">${count}</span>`;
+    container.appendChild(div);
+  }
+
+  function createTaskCard(t, category) {
+    const card = document.createElement('div');
+    card.className = `card-item ${category === 'active' ? 'active-card' : ''} ${category === 'deferred' ? 'deferred-card' : ''}`;
+
+    let statusPill = '';
+    if (category === 'active' && t.block) {
+      const s = new Date(t.block.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const e = new Date(t.block.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      statusPill = `<span class="time-pill">${s} - ${e}</span>`;
+    } else if (category === 'deferred') {
+      const dDate = new Date(t.deferred_until + 'T00:00:00');
+      const formattedDate = dDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      statusPill = `<span class="badge-deferred-pill">🌙 Deferred until ${formattedDate}</span>`;
+    } else {
+      statusPill = `<span class="badge-queued-pill">Queued</span>`;
+    }
+
+    const prioVal = t.priority_score || 5;
+
+    // Direct Action buttons
+    let actionButtons = '';
+    if (category === 'deferred') {
+      actionButtons = `<button class="btn-unsnooze" data-id="${t.id}">☀️ Un-snooze</button>`;
+    } else {
+      actionButtons = `
+        <button class="btn-direct-snooze" data-id="${t.id}" data-days="1">🌙 Tomorrow</button>
+        <button class="btn-direct-snooze" data-id="${t.id}" data-days="7">📅 Next Week</button>
+      `;
+    }
+
+    card.innerHTML = `
+      <div class="card-main-row">
+        <div class="card-left-group">
+          ${statusPill}
+          <div class="card-task-title">${t.title}</div>
+        </div>
+
+        <div class="controls-group">
+          ${actionButtons}
+          <select class="prio-select-pill" data-id="${t.id}">
+            ${[1,2,3,4,5,6,7,8,9,10].map(p => `<option value="${p}" ${p === prioVal ? 'selected' : ''}>P${p}</option>`).join('')}
+          </select>
+          <span class="badge-tag badge-duration">⏱️ ${t.estimated_minutes || 30}m</span>
+          <button class="btn-complete-task" data-id="${t.id}" data-title="${t.title}" data-min="${t.estimated_minutes || 30}">✓ Complete</button>
         </div>
       </div>
     `;
+
+    // Event listeners
+    card.querySelectorAll('.btn-direct-snooze').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.id;
+        const days = btn.dataset.days;
+        await deferTask(id, days);
+      });
+    });
+
+    const unsnoozeBtn = card.querySelector('.btn-unsnooze');
+    if (unsnoozeBtn) {
+      unsnoozeBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await deferTask(unsnoozeBtn.dataset.id, -1); // Clear deferral
+      });
+    }
+
+    const prioSelect = card.querySelector('.prio-select-pill');
+    if (prioSelect) {
+      prioSelect.addEventListener('change', async (e) => {
+        const id = prioSelect.dataset.id;
+        const newPrio = parseInt(e.target.value);
+        await updatePriority(id, newPrio);
+      });
+    }
+
+    const completeBtn = card.querySelector('.btn-complete-task');
+    if (completeBtn) {
+      completeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openCompleteModal({
+          id: completeBtn.dataset.id,
+          title: completeBtn.dataset.title,
+          estimated_minutes: parseInt(completeBtn.dataset.min),
+        });
+      });
+    }
+
+    return card;
+  }
+
+  // SNOOZE / DEFER TASK
+  async function deferTask(taskId, days) {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/defer?days=${days}`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to snooze task');
+      await fetchPlan();
+    } catch (err) {
+      alert('Error snoozing task: ' + err.message);
+    }
+  }
+
+  // PRIORITY OVERRIDE
+  async function updatePriority(taskId, prio) {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/priority`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority_score: prio }),
+      });
+      if (!res.ok) throw new Error('Failed to update priority');
+      await fetchPlan();
+    } catch (err) {
+      alert('Error updating priority: ' + err.message);
+    }
+  }
+
+  // ADD TASK
+  const addTaskModal = document.getElementById('addTaskModal');
+  document.getElementById('openAddTaskBtn')?.addEventListener('click', () => {
+    addTaskModal?.classList.add('active');
+  });
+  document.getElementById('cancelAddTaskBtn')?.addEventListener('click', () => {
+    addTaskModal?.classList.remove('active');
+  });
+  document.getElementById('saveAddTaskBtn')?.addEventListener('click', async () => {
+    const titleInput = document.getElementById('newTaskTitleInput');
+    const notesInput = document.getElementById('newTaskNotesInput');
+    if (!titleInput?.value.trim()) return;
+
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: titleInput.value.trim(), notes: notesInput?.value || '' }),
+      });
+      if (res.ok) {
+        titleInput.value = '';
+        if (notesInput) notesInput.value = '';
+        addTaskModal.classList.remove('active');
+        await fetchPlan();
+      }
+    } catch (err) {
+      alert('Error adding task: ' + err.message);
+    }
   });
 
-  tracksEl.innerHTML = tracksHtml;
-}
-
-// RENDER COMPACT AGENDA CARDS
-function renderSchedule(schedule) {
-  const timelineEl = document.getElementById('agendaTimeline');
-  const blocks = schedule?.blocks || [];
-  const stats = schedule?.solver_stats || {};
-
-  document.getElementById('scheduleCountBadge').innerHTML = `<span class="dot-live"></span> ${blocks.length} Tasks Scheduled`;
-
-  if (stats.engine) document.getElementById('solverEngine').textContent = stats.engine;
-  if (stats.status) {
-    const statusEl = document.getElementById('solverStatus');
-    statusEl.textContent = stats.status;
-    statusEl.className = stats.status === 'OPTIMAL' ? 'badge-status-green' : '';
-  }
-  if (stats.solve_time_sec !== undefined) {
-    document.getElementById('solverTime').textContent = `${stats.solve_time_sec}s`;
-  }
-  if (stats.work_hours) {
-    document.getElementById('solverHours').textContent = stats.work_hours;
-  } else {
-    document.getElementById('solverHours').textContent = `${currentConfig.work_start_hour}:00 - ${currentConfig.work_end_hour}:00`;
+  // COMPLETE TASK MODAL
+  const completionModal = document.getElementById('completionModal');
+  function openCompleteModal(task) {
+    appState.completingTask = task;
+    document.getElementById('modalTaskTitle').textContent = task.title;
+    document.getElementById('actualMinutesInput').value = task.estimated_minutes || 30;
+    completionModal?.classList.add('active');
   }
 
-  if (blocks.length === 0) {
-    timelineEl.innerHTML = '<div class="loading-state">No tasks scheduled for today. Click <strong>+ Add Task</strong> above to add a task.</div>';
-    return;
-  }
+  document.getElementById('cancelModalBtn')?.addEventListener('click', () => {
+    completionModal?.classList.remove('active');
+  });
 
-  timelineEl.innerHTML = blocks.map(b => {
-    const start = new Date(b.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const end = new Date(b.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    const prioOptions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(p => `
-      <option value="${p}" ${p === b.priority_score ? 'selected' : ''}>Priority P${p}</option>
-    `).join('');
-
-    return `
-      <div class="card-item">
-        <div class="card-main-row">
-          <div class="card-left-group">
-            <span class="time-pill">${start} - ${end}</span>
-            <span class="card-task-title" title="${escapeHtml(b.task_title)}">${escapeHtml(b.task_title)}</span>
-          </div>
-
-          <div class="controls-group">
-            <button class="btn-direct-snooze" onclick="deferTask('${b.task_id}', 1)">
-              🌙 Tomorrow
-            </button>
-            <button class="btn-direct-snooze" onclick="deferTask('${b.task_id}', 7)">
-              📅 Next Week
-            </button>
-            
-            <select class="prio-select-pill" onchange="updatePriority('${b.task_id}', this.value)">
-              ${prioOptions}
-            </select>
-
-            <span class="badge-tag badge-duration">⏱️ ${b.estimated_minutes}m</span>
-
-            <button class="btn-complete-task" onclick="openCompletionModal('${b.task_id}', '${escapeJsStr(b.task_title)}', ${b.estimated_minutes})">
-              ✓ Complete
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-// VIEW TOGGLE LOGIC
-document.getElementById('ganttViewBtn').addEventListener('click', () => {
-  document.getElementById('ganttViewBtn').classList.add('active');
-  document.getElementById('listViewBtn').classList.remove('active');
-  document.querySelector('.gantt-section').style.display = 'block';
-});
-
-document.getElementById('listViewBtn').addEventListener('click', () => {
-  document.getElementById('listViewBtn').classList.add('active');
-  document.getElementById('ganttViewBtn').classList.remove('active');
-  document.querySelector('.gantt-section').style.display = 'none';
-});
-
-// EDITABLE PRIORITY LOGIC
-async function updatePriority(taskId, newPriority) {
-  try {
-    const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/priority`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ priority_score: parseInt(newPriority, 10) })
+  document.querySelectorAll('.quick-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.getElementById('actualMinutesInput').value = chip.dataset.min;
     });
-    if (!res.ok) throw new Error('Failed to update priority');
-    await fetchPlan();
-  } catch (err) {
-    alert('Error updating priority: ' + err.message);
-  }
-}
+  });
 
-// DIRECT SNOOZE LOGIC
-async function deferTask(taskId, days) {
-  try {
-    const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/defer?days=${days}`, {
-      method: 'POST'
+  document.getElementById('confirmCompleteBtn')?.addEventListener('click', async () => {
+    if (!appState.completingTask) return;
+    const actual = parseInt(document.getElementById('actualMinutesInput').value) || 30;
+
+    try {
+      const res = await fetch('/api/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: appState.completingTask.id,
+          title: appState.completingTask.title,
+          estimated_minutes: appState.completingTask.estimated_minutes || 30,
+          actual_minutes: actual,
+        }),
+      });
+      if (res.ok) {
+        completionModal.classList.remove('active');
+        await fetchPlan();
+      }
+    } catch (err) {
+      alert('Error logging task completion: ' + err.message);
+    }
+  });
+
+  // RE-SOLVE BUTTON
+  document.getElementById('rescheduleBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('rescheduleBtn');
+    btn.disabled = true;
+    btn.textContent = '⚡ Solving...';
+    try {
+      await fetch('/api/reschedule', { method: 'POST' });
+      await fetchPlan();
+    } catch (err) {
+      alert('Reschedule error: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '⚡ Re-Solve';
+    }
+  });
+
+  // SETTINGS MODAL
+  const settingsModal = document.getElementById('settingsModal');
+  document.getElementById('openSettingsBtn')?.addEventListener('click', () => {
+    document.getElementById('workStartHourInput').value = appState.workStartHour;
+    document.getElementById('workEndHourInput').value = appState.workEndHour;
+    document.getElementById('bufferMinutesInput').value = appState.bufferMinutes;
+    document.getElementById('maxTasksPerDayInput').value = appState.maxTasksPerDay;
+
+    document.querySelectorAll('.day-chip').forEach(chip => {
+      const d = parseInt(chip.dataset.day);
+      if (appState.activeDays.includes(d)) {
+        chip.classList.add('active');
+      } else {
+        chip.classList.remove('active');
+      }
     });
-    if (!res.ok) throw new Error('Failed to snooze task');
-    await fetchPlan();
-  } catch (err) {
-    alert('Error snoozing task: ' + err.message);
-  }
-}
 
-// SETTINGS MODAL LOGIC
-document.getElementById('openSettingsBtn').addEventListener('click', () => {
-  document.getElementById('workStartHourInput').value = currentConfig.work_start_hour;
-  document.getElementById('workEndHourInput').value = currentConfig.work_end_hour;
-  document.getElementById('bufferMinutesInput').value = currentConfig.buffer_minutes;
-  document.getElementById('highEnergyStartInput').value = currentConfig.high_energy_start_hour;
+    settingsModal?.classList.add('active');
+  });
 
   document.querySelectorAll('.day-chip').forEach(chip => {
-    const day = parseInt(chip.dataset.day, 10);
-    if (currentConfig.active_days.includes(day)) {
-      chip.classList.add('active');
-    } else {
-      chip.classList.remove('active');
+    chip.addEventListener('click', () => {
+      chip.classList.toggle('active');
+    });
+  });
+
+  document.getElementById('cancelSettingsBtn')?.addEventListener('click', () => {
+    settingsModal?.classList.remove('active');
+  });
+
+  document.getElementById('saveSettingsBtn')?.addEventListener('click', async () => {
+    const activeDays = Array.from(document.querySelectorAll('.day-chip.active')).map(c => parseInt(c.dataset.day));
+    const startH = parseInt(document.getElementById('workStartHourInput').value);
+    const endH = parseInt(document.getElementById('workEndHourInput').value);
+    const buf = parseInt(document.getElementById('bufferMinutesInput').value);
+    const maxTasks = parseInt(document.getElementById('maxTasksPerDayInput').value);
+
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          active_days: activeDays,
+          work_start_hour: startH,
+          work_end_hour: endH,
+          buffer_minutes: buf,
+          max_tasks_per_day: maxTasks,
+          high_energy_start_hour: appState.highEnergyStart,
+          high_energy_end_hour: appState.highEnergyEnd,
+        }),
+      });
+      if (res.ok) {
+        settingsModal.classList.remove('active');
+        await fetchPlan();
+      }
+    } catch (err) {
+      alert('Error saving settings: ' + err.message);
     }
   });
 
-  document.getElementById('settingsModal').classList.add('active');
+  // Initial load
+  fetchPlan();
 });
-
-document.querySelectorAll('.day-chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    chip.classList.toggle('active');
-  });
-});
-
-document.getElementById('cancelSettingsBtn').addEventListener('click', () => {
-  document.getElementById('settingsModal').classList.remove('active');
-});
-
-document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
-  const active_days = [];
-  document.querySelectorAll('.day-chip.active').forEach(chip => {
-    active_days.push(parseInt(chip.dataset.day, 10));
-  });
-
-  const work_start_hour = parseInt(document.getElementById('workStartHourInput').value, 10) || 8;
-  const work_end_hour = parseInt(document.getElementById('workEndHourInput').value, 10) || 21;
-  const buffer_minutes = parseInt(document.getElementById('bufferMinutesInput').value, 10) || 10;
-  const high_energy_start_hour = parseInt(document.getElementById('highEnergyStartInput').value, 10) || 9;
-
-  const btn = document.getElementById('saveSettingsBtn');
-  btn.disabled = true;
-  btn.textContent = 'Saving...';
-
-  try {
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        active_days,
-        work_start_hour,
-        work_end_hour,
-        buffer_minutes,
-        high_energy_start_hour,
-        high_energy_end_hour: high_energy_start_hour + 3
-      })
-    });
-    if (!res.ok) throw new Error('Failed to save settings');
-    const data = await res.json();
-    currentConfig = data.config;
-    document.getElementById('settingsModal').classList.remove('active');
-    await fetchPlan();
-  } catch (err) {
-    alert('Error saving settings: ' + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Save & Solve';
-  }
-});
-
-// ADD TASK MODAL LOGIC
-document.getElementById('openAddTaskBtn').addEventListener('click', () => {
-  document.getElementById('newTaskTitleInput').value = '';
-  document.getElementById('newTaskNotesInput').value = '';
-  document.getElementById('addTaskModal').classList.add('active');
-});
-
-document.getElementById('cancelAddTaskBtn').addEventListener('click', () => {
-  document.getElementById('addTaskModal').classList.remove('active');
-});
-
-document.getElementById('saveAddTaskBtn').addEventListener('click', async () => {
-  const title = document.getElementById('newTaskTitleInput').value.trim();
-  const notes = document.getElementById('newTaskNotesInput').value.trim();
-  if (!title) {
-    alert('Please enter a task title');
-    return;
-  }
-
-  const btn = document.getElementById('saveAddTaskBtn');
-  btn.disabled = true;
-  btn.textContent = 'Saving...';
-
-  try {
-    await fetch('/api/tasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, notes })
-    });
-    document.getElementById('addTaskModal').classList.remove('active');
-    await fetchPlan();
-  } catch (err) {
-    alert('Failed to add task: ' + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Add Task';
-  }
-});
-
-// RESHUFFLE BUTTON LOGIC
-document.getElementById('rescheduleBtn').addEventListener('click', async () => {
-  const btn = document.getElementById('rescheduleBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="icon">⚡</span> Solving...';
-  try {
-    await fetch('/api/reschedule', { method: 'POST' });
-    await fetchPlan();
-  } catch (err) {
-    alert('Reshuffle failed: ' + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<span class="icon">⚡</span> Re-Solve';
-  }
-});
-
-// COMPLETION MODAL LOGIC
-function openCompletionModal(taskId, title, estMin) {
-  activeTaskToComplete = { taskId, title, estMin };
-  document.getElementById('modalTaskTitle').textContent = title;
-  document.getElementById('actualMinutesInput').value = estMin;
-  document.getElementById('completionModal').classList.add('active');
-}
-
-document.querySelectorAll('.quick-chip').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.getElementById('actualMinutesInput').value = btn.dataset.min;
-  });
-});
-
-document.getElementById('cancelModalBtn').addEventListener('click', () => {
-  document.getElementById('completionModal').classList.remove('active');
-  activeTaskToComplete = null;
-});
-
-document.getElementById('confirmCompleteBtn').addEventListener('click', async () => {
-  if (!activeTaskToComplete) return;
-  const actualMin = parseInt(document.getElementById('actualMinutesInput').value, 10) || 30;
-
-  try {
-    await fetch('/api/complete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        task_id: activeTaskToComplete.taskId,
-        title: activeTaskToComplete.title,
-        estimated_minutes: activeTaskToComplete.estMin,
-        actual_minutes: actualMin,
-      })
-    });
-    document.getElementById('completionModal').classList.remove('active');
-    activeTaskToComplete = null;
-    await fetchPlan();
-  } catch (err) {
-    alert('Failed to log completion: ' + err.message);
-  }
-});
-
-// UTILITIES
-function escapeHtml(str) {
-  return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function escapeJsStr(str) {
-  return (str || '').replace(/'/g, "\\'").replace(/"/g, '\\"');
-}
-
-// Refresh every 30 seconds
-setInterval(fetchPlan, 30000);
-fetchPlan();

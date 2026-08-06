@@ -16,12 +16,14 @@ class Scheduler:
         work_start_hour: Optional[int] = None,
         work_end_hour: Optional[int] = None,
         buffer_minutes: Optional[int] = None,
-        active_days: Optional[List[int]] = None
+        active_days: Optional[List[int]] = None,
+        max_tasks_per_day: Optional[int] = None,
     ):
         self.work_start_hour = work_start_hour if work_start_hour is not None else config.scheduler.work_start_hour
         self.work_end_hour = work_end_hour if work_end_hour is not None else config.scheduler.work_end_hour
         self.buffer_minutes = buffer_minutes if buffer_minutes is not None else config.scheduler.buffer_minutes
         self.active_days = active_days if active_days is not None else config.scheduler.active_days
+        self.max_tasks_per_day = max_tasks_per_day if max_tasks_per_day is not None else getattr(config.scheduler, "max_tasks_per_day", 5)
 
     def solve(
         self,
@@ -32,19 +34,19 @@ class Scheduler:
     ) -> SchedulePlan:
         """
         Solves optimal task scheduling using Google OR-Tools CP-SAT constraint solver.
-        - Hard Constraints: fixed meetings can't move, work hours enforced, active days enforced.
-        - Not Today / Deferred Tasks: tasks deferred until future date are excluded from today's schedule.
+        - Hard Constraints: fixed meetings can't move, work hours enforced, active days enforced, max tasks per day.
+        - Deferred Tasks: tasks snoozed until future date are excluded from today's schedule.
         - Soft Objectives: priority weighted, urgency decay, morning high-energy match.
         """
         t0 = time.time()
         
-        # Reload latest config values if default initialized
+        # Reload latest config values
         self.work_start_hour = config.scheduler.work_start_hour
         self.work_end_hour = config.scheduler.work_end_hour
         self.buffer_minutes = config.scheduler.buffer_minutes
         self.active_days = config.scheduler.active_days
+        self.max_tasks_per_day = getattr(config.scheduler, "max_tasks_per_day", 5)
 
-        # Filter out deferred tasks for today
         now = start_time or datetime.now()
         if now.tzinfo is not None:
             now = now.replace(tzinfo=None)
@@ -85,7 +87,6 @@ class Scheduler:
         curr = now
 
         while curr < plan_end:
-            # Enforce active days (e.g. 0=Mon, 6=Sun)
             if curr.weekday() in self.active_days:
                 if self.work_start_hour <= curr.hour < self.work_end_hour:
                     slot_end = curr + timedelta(minutes=SLOT_MINUTES)
@@ -142,6 +143,10 @@ class Scheduler:
 
         # HARD CONSTRAINT: No overlapping tasks
         model.AddNoOverlap(interval_vars)
+
+        # HARD CONSTRAINT: Max tasks per day limit
+        if self.max_tasks_per_day > 0:
+            model.Add(sum(info["is_scheduled"] for info in task_vars.values()) <= self.max_tasks_per_day)
 
         # HARD CONSTRAINT: Due dates
         for t_id, info in task_vars.items():
@@ -229,6 +234,7 @@ class Scheduler:
             "solve_time_sec": solve_duration,
             "tasks_count": len(tasks),
             "scheduled_count": len(blocks),
+            "max_tasks_per_day": self.max_tasks_per_day,
             "deferred_count": len(deferred_ids),
             "active_days_configured": self.active_days,
             "work_hours": f"{self.work_start_hour}:00 - {self.work_end_hour}:00",

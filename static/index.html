@@ -33,7 +33,7 @@
     <!-- Main Workspace Content -->
     <main class="dashboard-body">
 
-      <!-- COMPACT GANTT CHART TIMELINE SECTION -->
+      <!-- COMPACT PACKED GANTT TIMELINE SECTION -->
       <section class="gantt-section">
         <div class="section-header">
           <div class="section-title-group">
@@ -55,14 +55,14 @@
         </div>
       </section>
 
-      <!-- TIGHT EXECUTIVE AGENDA CARDS SECTION -->
+      <!-- COMPLETE WORKLOAD AGENDA SECTION (ALL TASKS) -->
       <section class="agenda-section">
         <div class="section-header">
           <div class="section-title-group">
             <h2>Workload Agenda</h2>
           </div>
           <div class="stats-counter" id="scheduleCountBadge">
-            <span class="dot-live"></span> 0 Tasks
+            <span class="dot-live"></span> 0 Total Tasks
           </div>
         </div>
 
@@ -83,6 +83,8 @@
         <span>Status: <strong class="badge-status-green" id="solverStatus">OPTIMAL</strong></span>
         <div class="divider"></div>
         <span>Solve: <strong id="solverTime">0.005s</strong></span>
+        <div class="divider"></div>
+        <span>Max Tasks/Day: <strong id="solverMaxTasks">5</strong></span>
         <div class="divider"></div>
         <span>Window: <strong id="solverHours">8:00 - 21:00</strong></span>
       </div>
@@ -125,12 +127,12 @@
 
       <div class="form-grid-2">
         <div class="form-group">
-          <label class="label-title">Buffer (Mins)</label>
+          <label class="label-title">Task Buffer (Mins)</label>
           <input type="number" id="bufferMinutesInput" class="custom-input" min="0" max="60" value="10">
         </div>
         <div class="form-group">
-          <label class="label-title">High Energy Start</label>
-          <input type="number" id="highEnergyStartInput" class="custom-input" min="0" max="23" value="9">
+          <label class="label-title">Max Tasks / Day</label>
+          <input type="number" id="maxTasksPerDayInput" class="custom-input" min="1" max="20" value="5">
         </div>
       </div>
 

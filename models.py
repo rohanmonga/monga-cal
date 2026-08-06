@@ -69,5 +69,6 @@ class ScheduleSettingsRequest(BaseModel):
     work_start_hour: int = 8
     work_end_hour: int = 21
     buffer_minutes: int = 10
+    max_tasks_per_day: int = 5
     high_energy_start_hour: int = 9
     high_energy_end_hour: int = 12
