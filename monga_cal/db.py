@@ -52,7 +52,8 @@ class Database:
             cursor = conn.cursor()
 
             if self.is_postgres:
-                cursor.execute("""
+                tables = [
+                    """
                     CREATE TABLE IF NOT EXISTS task_history (
                         id SERIAL PRIMARY KEY,
                         task_id TEXT,
@@ -61,8 +62,9 @@ class Database:
                         actual_minutes INTEGER NOT NULL,
                         completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
-                    CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC);
-
+                    """,
+                    "CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC);",
+                    """
                     CREATE TABLE IF NOT EXISTS estimate_cache (
                         content_hash TEXT PRIMARY KEY,
                         estimated_minutes INTEGER,
@@ -72,32 +74,44 @@ class Database:
                         reasoning TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
-
+                    """,
+                    """
                     CREATE TABLE IF NOT EXISTS plan_history (
                         id SERIAL PRIMARY KEY,
                         plan_hash TEXT NOT NULL,
                         plan_json TEXT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
-
+                    """,
+                    """
                     CREATE TABLE IF NOT EXISTS task_deferrals (
                         task_id TEXT PRIMARY KEY,
                         deferred_until DATE NOT NULL,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
-
+                    """,
+                    """
                     CREATE TABLE IF NOT EXISTS priority_overrides (
                         task_id TEXT PRIMARY KEY,
                         priority_score INTEGER NOT NULL,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
-
+                    """,
+                    """
                     CREATE TABLE IF NOT EXISTS app_settings (
                         key TEXT PRIMARY KEY,
                         value_json TEXT NOT NULL,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
-                """)
+                    """
+                ]
+                for stmt in tables:
+                    try:
+                        cursor.execute(stmt)
+                        conn.commit()
+                    except Exception as stmt_err:
+                        conn.rollback()
+                        logger.warning(f"PostgreSQL statement error: {stmt_err}")
             else:
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS task_history (
@@ -155,13 +169,18 @@ class Database:
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                conn.commit()
 
-            conn.commit()
             conn.close()
             logger.info(f"Database initialized successfully (Engine: {'PostgreSQL' if self.is_postgres else 'SQLite'})")
 
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
+            if self.is_postgres:
+                logger.warning("Falling back to local SQLite due to PostgreSQL error...")
+                self.is_postgres = False
+                self.connection_string = "monga_cal.db"
+                self._init_db()
 
     def save_setting(self, key: str, value: Any):
         sql = """

@@ -5,7 +5,7 @@ ai:
   model_name: gemini-2.0-flash
 daemon:
   db_path: monga_cal.db
-  database_url: postgresql://pi:4475a9dc291aa4ec27@localhost:5432/monga_cal
+  database_url: postgresql://pi:4475a9dc291aa4ec27@192.168.1.73:5432/monga_cal
   poll_interval_seconds: 180
 google:
   calendar_id: primary
