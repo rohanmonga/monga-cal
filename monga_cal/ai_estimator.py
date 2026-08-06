@@ -67,7 +67,7 @@ class AIEstimator:
 You are an AI Executive Workload Manager.
 Evaluate this pending user task and assign:
 1. Exact duration in minutes (estimated_minutes, between 15 and 240).
-2. Priority score from 1 (lowest) to 10 (highest/urgent) (priority_score).
+2. Priority score from 1 (highest/urgent) to 10 (lowest priority) (priority_score). Note: P1 is urgent/top priority, P10 is lowest.
 3. Required energy level: 'high' (deep focus), 'medium' (standard work), or 'low' (quick admin/errands) (energy_level).
 4. Coaching Note (manager_directive): A 1 sentence directive for completing this task.
 
@@ -145,13 +145,14 @@ User Past Completion Velocity:
             task.estimated_minutes = 20
             task.energy = "low"
             task.manager_directive = "Quick administrative task."
+            task.priority_score = 3
         elif any(w in title_lower for w in ["tax", "code", "report", "write", "design", "study", "passport"]):
             task.estimated_minutes = 60
             task.energy = "high"
             task.manager_directive = "High cognitive effort required."
+            task.priority_score = 1
         else:
             task.estimated_minutes = 30
             task.energy = "medium"
             task.manager_directive = "Standard priority work block."
-
-        task.priority_score = 5
+            task.priority_score = 5

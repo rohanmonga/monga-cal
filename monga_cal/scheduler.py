@@ -161,15 +161,16 @@ class Scheduler:
                 urgency = 10.0
             else:
                 urgency = 10.0 / (hours_until_due + 1.0)
-                
-            # Base inclusion score (Selection priority)
-            base_score = int(t.priority_score * 1000 * urgency)
+
+            # Invert priority convention: P1 = HIGHEST PRIORITY (10 pts), P10 = LOWEST PRIORITY (1 pt)
+            eff_prio = max(1, min(10, 11 - t.priority_score))
+
+            base_score = int(eff_prio * 1000 * urgency)
             objective_terms.append(base_score * is_sched)
 
-            # Sequence priority: Higher priority tasks must be scheduled earlier in the day
-            # (num_slots - start_var) * priority_score * 20
+            # Sequence priority: P1 (eff_prio=10) scheduled earlier in the day
             earlier_score = model.NewIntVar(-100000, 100000, f"earlier_{t_id}")
-            model.Add(earlier_score == (num_slots - start_var) * t.priority_score * 20).OnlyEnforceIf(is_sched)
+            model.Add(earlier_score == (num_slots - start_var) * eff_prio * 20).OnlyEnforceIf(is_sched)
             model.Add(earlier_score == 0).OnlyEnforceIf(is_sched.Not())
             objective_terms.append(earlier_score)
 
