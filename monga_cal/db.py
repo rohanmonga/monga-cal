@@ -25,16 +25,16 @@ class Database:
         self.is_postgres = self.connection_string.startswith(("postgresql://", "postgres://"))
         
         if self.is_postgres and not psycopg2:
-            logger.warning("PostgreSQL connection string provided, but 'psycopg2' module is not installed. Falling back to SQLite.")
-            self.is_postgres = False
-            self.connection_string = "monga_cal.db"
+            raise RuntimeError(
+                "PostgreSQL connection string provided in DATABASE_URL, but 'psycopg2' is not installed."
+            )
 
         self._init_db()
 
     def _get_connection(self):
         if self.is_postgres:
-            conn = psycopg2.connect(self.connection_string, cursor_factory=RealDictCursor)
-            return conn
+            # Strictly connect to PostgreSQL - raise Exception on connection failure (HARD CRASH)
+            return psycopg2.connect(self.connection_string, cursor_factory=RealDictCursor)
         else:
             conn = sqlite3.connect(self.connection_string, check_same_thread=False)
             conn.row_factory = sqlite3.Row
@@ -47,140 +47,119 @@ class Database:
         return sql
 
     def _init_db(self):
-        try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
 
-            if self.is_postgres:
-                tables = [
-                    """
-                    CREATE TABLE IF NOT EXISTS task_history (
-                        id SERIAL PRIMARY KEY,
-                        task_id TEXT,
-                        title TEXT NOT NULL,
-                        estimated_minutes INTEGER NOT NULL,
-                        actual_minutes INTEGER NOT NULL,
-                        completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                    """,
-                    "CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC);",
-                    """
-                    CREATE TABLE IF NOT EXISTS estimate_cache (
-                        content_hash TEXT PRIMARY KEY,
-                        estimated_minutes INTEGER,
-                        priority_score INTEGER,
-                        energy_level TEXT,
-                        manager_directive TEXT,
-                        reasoning TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                    """,
-                    """
-                    CREATE TABLE IF NOT EXISTS plan_history (
-                        id SERIAL PRIMARY KEY,
-                        plan_hash TEXT NOT NULL,
-                        plan_json TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                    """,
-                    """
-                    CREATE TABLE IF NOT EXISTS task_deferrals (
-                        task_id TEXT PRIMARY KEY,
-                        deferred_until DATE NOT NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                    """,
-                    """
-                    CREATE TABLE IF NOT EXISTS priority_overrides (
-                        task_id TEXT PRIMARY KEY,
-                        priority_score INTEGER NOT NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                    """,
-                    """
-                    CREATE TABLE IF NOT EXISTS app_settings (
-                        key TEXT PRIMARY KEY,
-                        value_json TEXT NOT NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                    """
-                ]
-                for stmt in tables:
-                    try:
-                        cursor.execute(stmt)
-                        conn.commit()
-                    except Exception as stmt_err:
-                        conn.rollback()
-                        logger.warning(f"PostgreSQL statement error: {stmt_err}")
-            else:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS task_history (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        task_id TEXT,
-                        title TEXT NOT NULL,
-                        estimated_minutes INTEGER NOT NULL,
-                        actual_minutes INTEGER NOT NULL,
-                        completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC)")
+        if self.is_postgres:
+            # Mandatory PostgreSQL Table Schema
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS task_history (
+                    id SERIAL PRIMARY KEY,
+                    task_id TEXT,
+                    title TEXT NOT NULL,
+                    estimated_minutes INTEGER NOT NULL,
+                    actual_minutes INTEGER NOT NULL,
+                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC);
 
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS estimate_cache (
-                        content_hash TEXT PRIMARY KEY,
-                        estimated_minutes INTEGER,
-                        priority_score INTEGER,
-                        energy_level TEXT,
-                        manager_directive TEXT,
-                        reasoning TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+                CREATE TABLE IF NOT EXISTS estimate_cache (
+                    content_hash TEXT PRIMARY KEY,
+                    estimated_minutes INTEGER,
+                    priority_score INTEGER,
+                    energy_level TEXT,
+                    manager_directive TEXT,
+                    reasoning TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
 
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS plan_history (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        plan_hash TEXT NOT NULL,
-                        plan_json TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+                CREATE TABLE IF NOT EXISTS plan_history (
+                    id SERIAL PRIMARY KEY,
+                    plan_hash TEXT NOT NULL,
+                    plan_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
 
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS task_deferrals (
-                        task_id TEXT PRIMARY KEY,
-                        deferred_until DATE NOT NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+                CREATE TABLE IF NOT EXISTS task_deferrals (
+                    task_id TEXT PRIMARY KEY,
+                    deferred_until DATE NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
 
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS priority_overrides (
-                        task_id TEXT PRIMARY KEY,
-                        priority_score INTEGER NOT NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+                CREATE TABLE IF NOT EXISTS priority_overrides (
+                    task_id TEXT PRIMARY KEY,
+                    priority_score INTEGER NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
 
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS app_settings (
-                        key TEXT PRIMARY KEY,
-                        value_json TEXT NOT NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                conn.commit()
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.commit()
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS task_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT,
+                    title TEXT NOT NULL,
+                    estimated_minutes INTEGER NOT NULL,
+                    actual_minutes INTEGER NOT NULL,
+                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC)")
 
-            conn.close()
-            logger.info(f"Database initialized successfully (Engine: {'PostgreSQL' if self.is_postgres else 'SQLite'})")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS estimate_cache (
+                    content_hash TEXT PRIMARY KEY,
+                    estimated_minutes INTEGER,
+                    priority_score INTEGER,
+                    energy_level TEXT,
+                    manager_directive TEXT,
+                    reasoning TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-        except Exception as e:
-            logger.error(f"Failed to initialize database: {e}")
-            if self.is_postgres:
-                logger.warning("Falling back to local SQLite due to PostgreSQL error...")
-                self.is_postgres = False
-                self.connection_string = "monga_cal.db"
-                self._init_db()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS plan_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plan_hash TEXT NOT NULL,
+                    plan_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS task_deferrals (
+                    task_id TEXT PRIMARY KEY,
+                    deferred_until DATE NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS priority_overrides (
+                    task_id TEXT PRIMARY KEY,
+                    priority_score INTEGER NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+        conn.close()
+        logger.info(f"Database initialized successfully (Engine: {'PostgreSQL' if self.is_postgres else 'SQLite'})")
 
     def save_setting(self, key: str, value: Any):
         sql = """
