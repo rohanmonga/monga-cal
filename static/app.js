@@ -226,6 +226,7 @@ function renderGanttChart() {
   if (!ganttTracks || !ganttTimeScale) return;
 
   const allBlocks = currentSchedule.blocks || [];
+  const taskMap = new Map(currentTasks.map(t => [t.id, t]));
   const todayStr = new Date().toISOString().split('T')[0];
   const todayBlocks = allBlocks.filter(b => b.start.startsWith(todayStr));
 
@@ -279,9 +280,6 @@ function renderGanttChart() {
   const trackHeight = 56;
   ganttTracks.style.height = `${tracks.length * trackHeight + 10}px`;
 
-  const pastels = ['pastel-blue', 'pastel-peach', 'pastel-sage'];
-  let colorIdx = 0;
-
   tracks.forEach((trackBlocks, tIdx) => {
     trackBlocks.forEach(b => {
       const dtStart = new Date(b.start);
@@ -293,11 +291,12 @@ function renderGanttChart() {
       const leftPercent = Math.max(0, Math.min(96, (startMinutes / totalMinutes) * 100));
       const widthPercent = Math.max(12, Math.min(100 - leftPercent, (durationMinutes / totalMinutes) * 100));
 
-      const pastelClass = pastels[colorIdx % pastels.length];
-      colorIdx++;
+      const parentTask = taskMap.get(b.task_id);
+      const preset = (parentTask ? parentTask.color_preset : b.color_preset) || 'neutral';
+      const icon = (parentTask ? parentTask.category_icon : b.category_icon) || '📌';
 
       const card = document.createElement('div');
-      card.className = `gantt-block-card ${pastelClass}`;
+      card.className = `gantt-block-card preset-${preset.toLowerCase()}`;
       card.style.left = `${leftPercent}%`;
       card.style.width = `${widthPercent}%`;
       card.style.top = `${tIdx * trackHeight}px`;
@@ -312,7 +311,7 @@ function renderGanttChart() {
 
       card.innerHTML = `
         <div class="block-time">${formatTime(dtStart)}</div>
-        <div class="block-title">${escapeHtml(b.task_title)}</div>
+        <div class="block-title">${icon} ${escapeHtml(b.task_title)}</div>
       `;
 
       ganttTracks.appendChild(card);
@@ -335,14 +334,14 @@ function renderWorkloadAgenda() {
   const todayBlocks = blocks.filter(b => b.start.startsWith(todayStr));
   const scheduledToday = todayBlocks.map(b => ({
     block: b,
-    task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score, manager_directive: b.manager_directive, category: b.category }
+    task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score, manager_directive: b.manager_directive, category: b.category, category_icon: b.category_icon, color_preset: b.color_preset }
   }));
 
   // 2. Scheduled blocks for future days
   const futureBlocks = blocks.filter(b => !b.start.startsWith(todayStr));
   const upcomingScheduled = futureBlocks.map(b => ({
     block: b,
-    task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score, manager_directive: b.manager_directive, category: b.category }
+    task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score, manager_directive: b.manager_directive, category: b.category, category_icon: b.category_icon, color_preset: b.color_preset }
   }));
 
   // 3. Unscheduled or snoozed tasks
@@ -409,23 +408,13 @@ function renderWorkloadAgenda() {
   }
 }
 
-function getCategoryIcon(catName) {
-  catName = (catName || 'general').toLowerCase();
-  const icons = {
-    urgent: '🚨',
-    errands: '🚗',
-    car: '🔧',
-    admin: '📋',
-    tech: '💻',
-    general: '📌',
-  };
-  return icons[catName] || icons.general;
-}
-
 function createAgendaCard(task, block) {
   const card = document.createElement('div');
-  const catName = (task.category || (block ? block.category : 'general')).toLowerCase();
-  card.className = `card-item category-${catName}`;
+  const colorPreset = (task.color_preset || (block ? block.color_preset : 'neutral')).toLowerCase();
+  const icon = task.category_icon || (block ? block.category_icon : '📌');
+  const catName = task.category || (block ? block.category : 'General');
+
+  card.className = `card-item preset-${colorPreset}`;
 
   let timeHtml = `<div class="card-left-time">--:--<br>--:--</div>`;
   if (block) {
@@ -461,14 +450,13 @@ function createAgendaCard(task, block) {
     ? `<div class="card-subtitle-directive">💡 ${escapeHtml(directiveText)}</div>`
     : '';
 
-  const catIcon = getCategoryIcon(catName);
-
   card.innerHTML = `
     ${timeHtml}
     <div class="card-title-text">
       <div class="card-title-main">
-        <span class="title-icon-prefix">${catIcon}</span>
+        <span class="title-icon-prefix">${icon}</span>
         <span>${escapeHtml(task.title)}</span>
+        <span class="category-auto-badge">${escapeHtml(catName)}</span>
       </div>
       ${directiveSubHtml}
     </div>

@@ -72,7 +72,9 @@ class Database:
                     estimated_minutes INTEGER,
                     priority_score INTEGER,
                     energy_level TEXT,
-                    category TEXT DEFAULT 'general',
+                    category TEXT DEFAULT 'General',
+                    category_icon TEXT DEFAULT '📌',
+                    color_preset TEXT DEFAULT 'neutral',
                     manager_directive TEXT,
                     reasoning TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -103,70 +105,37 @@ class Database:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'general';")
+            cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'General';")
+            cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS category_icon TEXT DEFAULT '📌';")
+            cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS color_preset TEXT DEFAULT 'neutral';")
             conn.commit()
         else:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS task_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id TEXT,
-                    title TEXT NOT NULL,
-                    estimated_minutes INTEGER NOT NULL,
-                    actual_minutes INTEGER NOT NULL,
-                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC)")
-
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS estimate_cache (
                     content_hash TEXT PRIMARY KEY,
                     estimated_minutes INTEGER,
                     priority_score INTEGER,
                     energy_level TEXT,
-                    category TEXT DEFAULT 'general',
+                    category TEXT DEFAULT 'General',
+                    category_icon TEXT DEFAULT '📌',
+                    color_preset TEXT DEFAULT 'neutral',
                     manager_directive TEXT,
                     reasoning TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             try:
-                cursor.execute("ALTER TABLE estimate_cache ADD COLUMN category TEXT DEFAULT 'general'")
+                cursor.execute("ALTER TABLE estimate_cache ADD COLUMN category TEXT DEFAULT 'General'")
             except Exception:
                 pass
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS plan_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    plan_hash TEXT NOT NULL,
-                    plan_json TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS task_deferrals (
-                    task_id TEXT PRIMARY KEY,
-                    deferred_until DATE NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS priority_overrides (
-                    task_id TEXT PRIMARY KEY,
-                    priority_score INTEGER NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS app_settings (
-                    key TEXT PRIMARY KEY,
-                    value_json TEXT NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            try:
+                cursor.execute("ALTER TABLE estimate_cache ADD COLUMN category_icon TEXT DEFAULT '📌'")
+            except Exception:
+                pass
+            try:
+                cursor.execute("ALTER TABLE estimate_cache ADD COLUMN color_preset TEXT DEFAULT 'neutral'")
+            except Exception:
+                pass
             conn.commit()
 
         conn.close()
@@ -290,7 +259,7 @@ class Database:
 
     def get_cached_estimate(self, content_hash: str) -> Optional[Dict[str, Any]]:
         sql = """
-            SELECT estimated_minutes, priority_score, energy_level, category, manager_directive, reasoning
+            SELECT estimated_minutes, priority_score, energy_level, category, category_icon, color_preset, manager_directive, reasoning
             FROM estimate_cache
             WHERE content_hash = ?
         """
@@ -301,7 +270,9 @@ class Database:
                 "estimated_minutes": r_dict["estimated_minutes"],
                 "priority_score": r_dict["priority_score"],
                 "energy_level": r_dict["energy_level"],
-                "category": r_dict.get("category", "general") or "general",
+                "category": r_dict.get("category", "General") or "General",
+                "category_icon": r_dict.get("category_icon", "📌") or "📌",
+                "color_preset": r_dict.get("color_preset", "neutral") or "neutral",
                 "manager_directive": r_dict["manager_directive"],
                 "reasoning": r_dict.get("reasoning", ""),
             }
@@ -310,19 +281,21 @@ class Database:
     def save_cached_estimate(self, content_hash: str, estimate: Dict[str, Any]):
         sql = """
             INSERT INTO estimate_cache
-            (content_hash, estimated_minutes, priority_score, energy_level, category, manager_directive, reasoning)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (content_hash, estimated_minutes, priority_score, energy_level, category, category_icon, color_preset, manager_directive, reasoning)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (content_hash) DO UPDATE SET
                 estimated_minutes = EXCLUDED.estimated_minutes,
                 priority_score = EXCLUDED.priority_score,
                 energy_level = EXCLUDED.energy_level,
                 category = EXCLUDED.category,
+                category_icon = EXCLUDED.category_icon,
+                color_preset = EXCLUDED.color_preset,
                 manager_directive = EXCLUDED.manager_directive,
                 reasoning = EXCLUDED.reasoning
         """ if self.is_postgres else """
             INSERT OR REPLACE INTO estimate_cache
-            (content_hash, estimated_minutes, priority_score, energy_level, category, manager_directive, reasoning)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (content_hash, estimated_minutes, priority_score, energy_level, category, category_icon, color_preset, manager_directive, reasoning)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         self._execute(
             sql,
@@ -331,7 +304,9 @@ class Database:
                 estimate["estimated_minutes"],
                 estimate["priority_score"],
                 estimate["energy_level"],
-                estimate.get("category", "general"),
+                estimate.get("category", "General"),
+                estimate.get("category_icon", "📌"),
+                estimate.get("color_preset", "neutral"),
                 estimate.get("manager_directive", "Standard priority work block."),
                 estimate.get("reasoning", ""),
             ),

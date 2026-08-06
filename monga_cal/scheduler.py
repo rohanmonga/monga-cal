@@ -274,7 +274,9 @@ class Scheduler:
                             estimated_minutes=t.estimated_minutes or 30,
                             priority_score=t.priority_score,
                             energy=t.energy,
-                            category=getattr(t, "category", "general"),
+                            category=getattr(t, "category", "General"),
+                            category_icon=getattr(t, "category_icon", "📌"),
+                            color_preset=getattr(t, "color_preset", "neutral"),
                             manager_directive=t.manager_directive,
                         )
                     )

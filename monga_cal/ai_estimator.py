@@ -21,6 +21,49 @@ FALLBACK_MODELS = [
     "gemini-2.5-pro",
 ]
 
+CATEGORY_MAP = [
+    ("urgent", "Urgent", "🚨", "red"),
+    ("overdue", "Urgent", "⚠️", "red"),
+    ("financial", "Finance", "💳", "red"),
+    ("payment", "Finance", "💳", "red"),
+    ("balance", "Finance", "💳", "red"),
+    ("battery", "Car Maintenance", "🔋", "amber"),
+    ("crv", "Car Maintenance", "🔧", "amber"),
+    ("car", "Car Maintenance", "🔧", "amber"),
+    ("vehicle", "Car Maintenance", "🚘", "amber"),
+    ("costco", "Errands", "🚗", "purple"),
+    ("ups", "Errands", "📦", "purple"),
+    ("amazon", "Errands", "📦", "purple"),
+    ("errand", "Errands", "🚗", "purple"),
+    ("drop off", "Errands", "📦", "purple"),
+    ("return", "Errands", "📦", "purple"),
+    ("shipping", "Errands", "🚚", "purple"),
+    ("passport", "Official / Admin", "🛂", "cyan"),
+    ("zillow", "Finances & Admin", "🏠", "cyan"),
+    ("usbank", "Banking", "🏦", "cyan"),
+    ("bank", "Banking", "🏦", "cyan"),
+    ("rewards", "Rewards", "🎁", "cyan"),
+    ("admin", "Admin", "📋", "cyan"),
+    ("official", "Admin", "📄", "cyan"),
+    ("emulator", "Tech & Dev", "💻", "emerald"),
+    ("dashboard", "Tech & Dev", "📱", "emerald"),
+    ("tech", "Tech & Dev", "💻", "emerald"),
+    ("setup", "Tech & Dev", "⚙️", "emerald"),
+    ("campus", "School & Education", "🏫", "coral"),
+    ("school", "School & Education", "🏫", "coral"),
+    ("legoland", "Family & Trips", "🎟️", "coral"),
+    ("education", "School & Education", "🎓", "coral"),
+]
+
+def resolve_category_preset(cat_str: str, icon_str: Optional[str] = None, title_str: str = "") -> tuple:
+    combined = f"{cat_str} {title_str}".lower()
+    
+    for key, cname, cicon, cpreset in CATEGORY_MAP:
+        if key in combined:
+            return cname, (icon_str if (icon_str and icon_str != "📌") else cicon), cpreset
+    
+    return (cat_str.title() if cat_str else "General"), (icon_str or "📌"), "neutral"
+
 class AIEstimator:
     def __init__(self, db: Database):
         self.db = db
@@ -41,7 +84,7 @@ class AIEstimator:
         return hashlib.md5(raw_str.encode("utf-8")).hexdigest()
 
     def estimate_tasks_batch(self, tasks: List[Task]) -> List[Task]:
-        """Performs 1 single batched Gemini API call for all uncached tasks."""
+        """Performs 1 single batched Gemini API call for all uncached tasks with dynamic category discovery."""
         if not tasks:
             return []
 
@@ -60,7 +103,15 @@ class AIEstimator:
                 t.estimated_minutes = cached.get("estimated_minutes", 30)
                 t.priority_score = max(1, min(5, prio))
                 t.energy = cached.get("energy_level", "medium")
-                t.category = cached.get("category", "general")
+
+                cat_name, cat_icon, preset = resolve_category_preset(
+                    cached.get("category", "General"),
+                    cached.get("category_icon"),
+                    t.title
+                )
+                t.category = cat_name
+                t.category_icon = cat_icon
+                t.color_preset = preset
                 t.manager_directive = cached.get("manager_directive", "Standard priority focus block.")
                 t.flexible = True
             else:
@@ -85,7 +136,10 @@ class AIEstimator:
                 if prio > 5:
                     prio = 3
                 t.priority_score = max(1, min(5, prio))
-                t.category = getattr(t, "category", "general")
+                cat_name, cat_icon, preset = resolve_category_preset(getattr(t, "title", ""), title_str=getattr(t, "title", ""))
+                t.category = cat_name
+                t.category_icon = cat_icon
+                t.color_preset = preset
             return tasks
 
         # 3. Perform 1 SINGLE batched Gemini API call for all uncached tasks
@@ -100,13 +154,16 @@ class AIEstimator:
             for t in uncached_tasks
         ]
 
-        prompt = f"""You are an executive workload manager AI. Analyze this batch of tasks and estimate duration, priority, category, and focus requirements based on user history.
+        prompt = f"""You are an executive workload manager AI. Analyze this batch of tasks and estimate duration, priority, focus requirements, and auto-discover categories with specific emoji icons.
 
 User Task Completion History:
 {history_summary}
 
 Tasks to Estimate (Batch):
 {json.dumps(batch_payload, indent=2)}
+
+Instructions for Categories & Icons:
+Choose specific emoji icons matching the task (e.g. 🚗 for errands/driving, 🔧 for car maintenance, 📦 for shipping/packages, 🛂 for passport, 🏦 for banking, 💻 for tech, 🚨 for urgent/overdue, 🏫 for school/campus). Do NOT use generic pin 📌 if a specific emoji fits better!
 
 Respond ONLY with a valid JSON array where each object matches this schema:
 [
@@ -115,7 +172,8 @@ Respond ONLY with a valid JSON array where each object matches this schema:
     "estimated_minutes": <int, e.g. 15, 30, 45, 60, 90, 120>,
     "priority_score": <int 1-5 where 1=ASAP, 2=High, 3=Regular, 4=Next Week, 5=Tracking>,
     "energy_level": <string, "high" | "medium" | "low">,
-    "category": <string, "urgent" (financial/overdue/failed payments) | "errands" (logistics/returns/shopping) | "car" (auto/maintenance/vehicle/DMV) | "admin" (passport/forms/school/official) | "tech" (tablet/devices/setup/coding) | "general">,
+    "category": <string, e.g. "Errands", "Car Maintenance", "Banking", "Passport & Admin", "Tech & Dev", "School & Education">,
+    "category_icon": <emoji string, e.g. "🚗", "📦", "🔧", "🛂", "🏦", "💻", "🚨", "🏫">,
     "manager_directive": <string, 1 crisp sentence justifying priority & focus slot>,
     "flexible": <boolean, true if can be rescheduled>
   }}
@@ -148,7 +206,10 @@ Respond ONLY with a valid JSON array where each object matches this schema:
                 if prio > 5:
                     prio = 3
                 t.priority_score = max(1, min(5, prio))
-                t.category = getattr(t, "category", "general")
+                cat_name, cat_icon, preset = resolve_category_preset(getattr(t, "title", ""), title_str=getattr(t, "title", ""))
+                t.category = cat_name
+                t.category_icon = cat_icon
+                t.color_preset = preset
             return tasks
 
         try:
@@ -166,15 +227,17 @@ Respond ONLY with a valid JSON array where each object matches this schema:
                     prio = 3
                 prio = max(1, min(5, prio))
 
-                cat = str(item.get("category", "general")).lower()
-                if cat not in ["urgent", "errands", "car", "admin", "tech", "general"]:
-                    cat = "general"
+                raw_cat = str(item.get("category", t.title))
+                raw_icon = item.get("category_icon")
+                cat_name, cat_icon, preset = resolve_category_preset(raw_cat, raw_icon, t.title)
 
                 est_dict = {
                     "estimated_minutes": int(item.get("estimated_minutes", 30)),
                     "priority_score": prio,
                     "energy_level": str(item.get("energy_level", "medium")).lower(),
-                    "category": cat,
+                    "category": cat_name,
+                    "category_icon": cat_icon,
+                    "color_preset": preset,
                     "manager_directive": str(item.get("manager_directive", "AI batch estimated focus block.")),
                     "reasoning": "Batch AI estimated"
                 }
@@ -193,10 +256,12 @@ Respond ONLY with a valid JSON array where each object matches this schema:
 
                 t.energy = est_dict["energy_level"]
                 t.category = est_dict["category"]
+                t.category_icon = est_dict["category_icon"]
+                t.color_preset = est_dict["color_preset"]
                 t.manager_directive = est_dict["manager_directive"]
                 t.flexible = bool(item.get("flexible", True))
 
-            logger.info(f"Batch AI estimation complete for {len(uncached_tasks)} tasks via 1 Gemini API call.")
+            logger.info(f"Batch AI estimation & category discovery complete for {len(uncached_tasks)} tasks via 1 Gemini API call.")
 
         except Exception as e:
             logger.error(f"Error parsing Gemini batch response: {e}. Using fallback default values.")
@@ -207,7 +272,10 @@ Respond ONLY with a valid JSON array where each object matches this schema:
                 if prio > 5:
                     prio = 3
                 t.priority_score = max(1, min(5, prio))
-                t.category = getattr(t, "category", "general")
+                cat_name, cat_icon, preset = resolve_category_preset(getattr(t, "title", ""), title_str=getattr(t, "title", ""))
+                t.category = cat_name
+                t.category_icon = cat_icon
+                t.color_preset = preset
 
         return tasks
 
