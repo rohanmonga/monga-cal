@@ -39,10 +39,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-cors_origins = [os.getenv("FRONTEND_URL", "http://localhost:8000"), "http://localhost:3000"]
+cors_origins = [
+    os.getenv("FRONTEND_URL", "http://localhost:8000"),
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://192.168.1.73:8000",
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):?\d*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -138,7 +146,7 @@ async def get_today_schedule():
 async def get_plan():
     now = datetime.now()
     start_dt = datetime.combine(now.date(), datetime.min.time())
-    end_dt = start_dt + timedelta(days=2)
+    end_dt = start_dt + timedelta(days=14)
 
     raw_tasks = daemon_service.gservices.fetch_tasks()
     fixed_events = daemon_service.gservices.fetch_fixed_events(start_dt, end_dt)

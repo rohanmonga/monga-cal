@@ -3,6 +3,7 @@ import json
 import time
 import logging
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from typing import List, Optional, Dict, Any
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -28,9 +29,13 @@ class GoogleServicesManager:
         self.tasks_service = None
         self.calendar_service = None
         self.tasks_list_id = None
-        self.timezone = config.google.timezone
-        self._connected = False
+        
+        try:
+            self.tz_info = ZoneInfo(config.google.timezone)
+        except Exception:
+            self.tz_info = ZoneInfo("UTC")
 
+        self._connected = False
         self._custom_tasks: List[Task] = []
         self._tasks_cache: Optional[List[Task]] = None
         self._tasks_cache_time: float = 0.0
@@ -72,7 +77,7 @@ class GoogleServicesManager:
                 logger.error(f"Error building Google API clients: {e}")
                 self._connected = False
         else:
-            logger.warning("No valid Google OAuth credentials found. Operating in fallback mock mode.")
+            logger.warning("No valid Google OAuth credentials found. Operating in fallback mode.")
             self._connected = False
 
     def add_custom_task(self, task: Task) -> str:
@@ -128,7 +133,7 @@ class GoogleServicesManager:
             return self._tasks_cache
 
         if not self._connected or not self.tasks_service:
-            return self._custom_tasks or self._mock_tasks()
+            return self._custom_tasks
 
         list_id = self.get_or_create_monga_list_id()
         tasks: List[Task] = []
@@ -167,7 +172,7 @@ class GoogleServicesManager:
             self._tasks_cache_time = now_time
         except Exception as e:
             logger.error(f"Error fetching Google Tasks from list '{config.google.tasks_list_name}': {e}")
-            return self._custom_tasks or self._mock_tasks()
+            return self._custom_tasks
 
         return tasks
 
@@ -222,12 +227,12 @@ class GoogleServicesManager:
             return self._events_cache
 
         if not self._connected or not self.calendar_service:
-            return self._mock_fixed_events(start_dt, end_dt)
+            return []
 
         slots: List[CalendarSlot] = []
         try:
-            t_min_dt = datetime.combine(start_dt.date(), datetime.min.time()).replace(tzinfo=self.timezone)
-            t_max_dt = datetime.combine(end_dt.date(), datetime.max.time()).replace(tzinfo=self.timezone)
+            t_min_dt = datetime.combine(start_dt.date(), datetime.min.time()).replace(tzinfo=self.tz_info)
+            t_max_dt = datetime.combine(end_dt.date(), datetime.max.time()).replace(tzinfo=self.tz_info)
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
@@ -265,9 +270,10 @@ class GoogleServicesManager:
             self._events_cache = slots
             self._events_cache_key = cache_key
             self._events_cache_time = now_time
+            logger.info(f"Successfully fetched {len(slots)} fixed events from Google Calendar.")
         except Exception as e:
             logger.error(f"Error fetching Google Calendar events: {e}")
-            return self._mock_fixed_events(start_dt, end_dt)
+            return []
 
         return slots
 
@@ -278,7 +284,7 @@ class GoogleServicesManager:
 
         try:
             start_search = datetime.now() - timedelta(days=1)
-            end_search = datetime.now() + timedelta(days=7)
+            end_search = datetime.now() + timedelta(days=14)
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
@@ -361,29 +367,5 @@ class GoogleServicesManager:
         except Exception as e:
             logger.error(f"Error marking task complete in Google Tasks: {e}")
             return False
-
-    def _mock_tasks(self) -> List[Task]:
-        return []
-
-    def _mock_fixed_events(self, start_dt: datetime, end_dt: datetime) -> List[CalendarSlot]:
-        today_9am = datetime.combine(datetime.now().date(), datetime.min.time()).replace(hour=9)
-        today_10am = today_9am + timedelta(hours=1)
-        today_12pm = today_9am.replace(hour=12)
-        today_1pm = today_12pm + timedelta(hours=1)
-
-        return [
-            CalendarSlot(
-                start=today_9am,
-                end=today_10am,
-                is_fixed=True,
-                title="Team Sync Meeting",
-            ),
-            CalendarSlot(
-                start=today_12pm,
-                end=today_1pm,
-                is_fixed=True,
-                title="Lunch Break",
-            ),
-        ]
 
 gservices_manager = GoogleServicesManager()
