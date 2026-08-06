@@ -8,11 +8,18 @@ try:
 except ImportError:
     genai = None
 
-from monga_cal.models import Task, EstimationResult
+from monga_cal.models import Task
 from monga_cal.db import Database
 from monga_cal.config import config
 
 logger = logging.getLogger(__name__)
+
+FALLBACK_MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-pro",
+]
 
 class AIEstimator:
     def __init__(self, db: Database):
@@ -106,14 +113,35 @@ Respond ONLY with a valid JSON array where each object matches this schema:
 ]
 """
 
+        models_to_try = [config.ai.model_name] + [m for m in FALLBACK_MODELS if m != config.ai.model_name]
+        response_text = None
+
+        for model_candidate in models_to_try:
+            try:
+                logger.info(f"Sending 1 batched API request to Gemini ({model_candidate}) for {len(uncached_tasks)} tasks...")
+                response = self.client.models.generate_content(
+                    model=model_candidate,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    response_text = response.text.strip()
+                    logger.info(f"Successfully received batch AI estimations using model '{model_candidate}'")
+                    break
+            except Exception as ex:
+                logger.warning(f"Model '{model_candidate}' failed: {ex}. Trying next candidate...")
+
+        if not response_text:
+            logger.error("All Gemini model candidates failed. Using default heuristic fallbacks.")
+            for t in uncached_tasks:
+                t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
+                prio = t.priority_score or config.ai.default_priority
+                if prio > 5:
+                    prio = 3
+                t.priority_score = max(1, min(5, prio))
+            return tasks
+
         try:
-            logger.info(f"Sending 1 single batched API request to Gemini for {len(uncached_tasks)} tasks...")
-            response = self.client.models.generate_content(
-                model=config.ai.model_name,
-                contents=prompt,
-            )
-            
-            resp_text = response.text.strip()
+            resp_text = response_text
             if resp_text.startswith("```json"):
                 resp_text = resp_text.replace("```json", "").replace("```", "").strip()
             
@@ -147,7 +175,7 @@ Respond ONLY with a valid JSON array where each object matches this schema:
             logger.info(f"Batch AI estimation complete for {len(uncached_tasks)} tasks via 1 Gemini API call.")
 
         except Exception as e:
-            logger.error(f"Gemini API batch estimation error: {e}. Using fallback default values.")
+            logger.error(f"Error parsing Gemini batch response: {e}. Using fallback default values.")
             for t in uncached_tasks:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
                 prio = t.priority_score or config.ai.default_priority

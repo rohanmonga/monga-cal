@@ -2,7 +2,7 @@ ai:
   default_duration_minutes: 30
   default_priority: 5
   history_limit: 20
-  model_name: gemini-2.0-flash
+  model_name: gemini-3.5-flash-lite
 daemon:
   db_path: monga_cal.db
   database_url: postgresql://pi:4475a9dc291aa4ec27@192.168.1.73:5432/monga_cal

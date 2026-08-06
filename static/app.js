@@ -185,7 +185,7 @@ function renderHistoryView(historyItems, summary) {
     card.innerHTML = `
       <div class="card-left-time" style="min-width: 80px;">✓<br>${dateFormatted.split(',')[0]}</div>
       <div class="card-title-text">
-        ${escapeHtml(item.title)}
+        <div class="card-title-main">${escapeHtml(item.title)}</div>
         <div style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); margin-top: 2px;">
           Completed at ${dateFormatted} • Est: ${item.estimated_minutes}m
         </div>
@@ -331,7 +331,7 @@ function renderWorkloadAgenda() {
 
   const scheduledToday = blocks.map(b => ({
     block: b,
-    task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score }
+    task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score, manager_directive: b.manager_directive }
   }));
 
   const queuedTasks = [];
@@ -407,9 +407,17 @@ function createAgendaCard(task, block) {
   rawPrio = Math.max(1, Math.min(5, rawPrio));
   let prioClass = `p${rawPrio}`;
 
+  const directiveText = task.manager_directive || (block ? block.manager_directive : '');
+  const directiveSubHtml = directiveText && directiveText !== 'Standard priority focus block.' 
+    ? `<div class="card-subtitle-directive">💡 ${escapeHtml(directiveText)}</div>`
+    : '';
+
   card.innerHTML = `
     ${timeHtml}
-    <div class="card-title-text">${escapeHtml(task.title)}</div>
+    <div class="card-title-text">
+      <div class="card-title-main">${escapeHtml(task.title)}</div>
+      ${directiveSubHtml}
+    </div>
     <div class="card-right-controls">
       <button class="btn-direct-snooze" onclick="deferTaskDirect('${task.id}', 1)" title="Snooze Tomorrow">🌙 Tomorrow</button>
       <button class="btn-direct-snooze" onclick="deferTaskDirect('${task.id}', 7)" title="Snooze Next Week">📅 Next Week</button>
