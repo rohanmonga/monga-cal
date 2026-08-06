@@ -1,7 +1,7 @@
 import json
 import hashlib
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 try:
     from google import genai
@@ -33,87 +33,130 @@ class AIEstimator:
         raw_str = f"{task.title}_{task.notes}_{task.priority_raw}"
         return hashlib.md5(raw_str.encode("utf-8")).hexdigest()
 
-    def estimate_task(self, task: Task) -> Task:
-        content_hash = self._hash_task(task)
-        cached = self.db.get_cached_estimate(content_hash)
-        if cached:
-            prio = cached.get("priority_score", 3)
-            if prio > 5:
-                prio = 3
-            task.estimated_minutes = cached.get("estimated_minutes", 30)
-            task.priority_score = max(1, min(5, prio))
-            task.energy = cached.get("energy_level", "medium")
-            task.manager_directive = cached.get("manager_directive", "Standard priority focus block.")
-            task.flexible = True
-            return task
+    def estimate_tasks_batch(self, tasks: List[Task]) -> List[Task]:
+        """Performs 1 single batched Gemini API call for all uncached tasks."""
+        if not tasks:
+            return []
 
+        uncached_tasks: List[Task] = []
+        task_hashes: Dict[str, str] = {}
+
+        # 1. Load from DB cache first
+        for t in tasks:
+            chash = self._hash_task(t)
+            task_hashes[t.id] = chash
+            cached = self.db.get_cached_estimate(chash)
+            if cached:
+                prio = cached.get("priority_score", 3)
+                if prio > 5:
+                    prio = 3
+                t.estimated_minutes = cached.get("estimated_minutes", 30)
+                t.priority_score = max(1, min(5, prio))
+                t.energy = cached.get("energy_level", "medium")
+                t.manager_directive = cached.get("manager_directive", "Standard priority focus block.")
+                t.flexible = True
+            else:
+                uncached_tasks.append(t)
+
+        # If all tasks are cached, return immediately with zero API calls!
+        if not uncached_tasks:
+            logger.info(f"All {len(tasks)} tasks loaded from local DB estimation cache. (0 API calls made)")
+            return tasks
+
+        # 2. If Gemini client unavailable, apply fast fallback to uncached
+        if not self.client:
+            for t in uncached_tasks:
+                t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
+                prio = t.priority_score or config.ai.default_priority
+                if prio > 5:
+                    prio = 3
+                t.priority_score = max(1, min(5, prio))
+            return tasks
+
+        # 3. Perform 1 SINGLE batched Gemini API call for all uncached tasks
         history = self.db.get_recent_completion_history(limit=config.ai.history_limit)
         history_summary = "\n".join([
             f"- '{h['title']}': estimated {h['estimated_minutes']}m, took {h['actual_minutes']}m"
             for h in history
         ]) if history else "No completion history yet."
 
-        prompt = f"""You are an executive workload manager AI. Estimate the required duration and priority for this task based on user history.
+        batch_payload = [
+            {"task_id": t.id, "title": t.title, "notes": t.notes or ""}
+            for t in uncached_tasks
+        ]
 
-Task Title: "{task.title}"
-Task Notes: "{task.notes}"
-Priority (Raw): {task.priority_raw}
+        prompt = f"""You are an executive workload manager AI. Analyze this batch of tasks and estimate duration, priority, and focus requirements based on user history.
 
 User Task Completion History:
 {history_summary}
 
-Respond ONLY with a valid JSON object matching this exact schema:
-{{
-  "estimated_minutes": <int, e.g. 15, 30, 45, 60, 90, 120>,
-  "priority_score": <int 1-5 where 1=ASAP, 2=High, 3=Regular, 4=Next Week, 5=Tracking>,
-  "energy_level": <string, "high" | "medium" | "low">,
-  "manager_directive": <string, 1 brief sentence justifying the estimate>,
-  "flexible": <boolean, true if can be rescheduled>
-}}
+Tasks to Estimate (Batch):
+{json.dumps(batch_payload, indent=2)}
+
+Respond ONLY with a valid JSON array where each object matches this schema:
+[
+  {{
+    "task_id": "<string matching input task_id>",
+    "estimated_minutes": <int, e.g. 15, 30, 45, 60, 90, 120>,
+    "priority_score": <int 1-5 where 1=ASAP, 2=High, 3=Regular, 4=Next Week, 5=Tracking>,
+    "energy_level": <string, "high" | "medium" | "low">,
+    "manager_directive": <string, 1 crisp sentence justifying priority & focus slot>,
+    "flexible": <boolean, true if can be rescheduled>
+  }}
+]
 """
 
-        if not self.client:
-            task.estimated_minutes = task.estimated_minutes or config.ai.default_duration_minutes
-            prio = task.priority_score or config.ai.default_priority
-            if prio > 5:
-                prio = 3
-            task.priority_score = max(1, min(5, prio))
-            return task
-
         try:
+            logger.info(f"Sending 1 single batched API request to Gemini for {len(uncached_tasks)} tasks...")
             response = self.client.models.generate_content(
                 model=config.ai.model_name,
                 contents=prompt,
             )
-            data = json.loads(response.text)
             
-            prio = int(data.get("priority_score", 3))
-            if prio > 5:
-                prio = 3
-            prio = max(1, min(5, prio))
+            resp_text = response.text.strip()
+            if resp_text.startswith("```json"):
+                resp_text = resp_text.replace("```json", "").replace("```", "").strip()
+            
+            data_list = json.loads(resp_text)
+            est_map = {item.get("task_id"): item for item in data_list if isinstance(item, dict)}
 
-            res_dict = {
-                "estimated_minutes": int(data.get("estimated_minutes", 30)),
-                "priority_score": prio,
-                "energy_level": str(data.get("energy_level", "medium")).lower(),
-                "manager_directive": str(data.get("manager_directive", "AI estimated task parameters.")),
-                "reasoning": "AI estimated"
-            }
+            for t in uncached_tasks:
+                item = est_map.get(t.id, {})
+                prio = int(item.get("priority_score", 3))
+                if prio > 5:
+                    prio = 3
+                prio = max(1, min(5, prio))
 
-            self.db.save_cached_estimate(content_hash, res_dict)
+                est_dict = {
+                    "estimated_minutes": int(item.get("estimated_minutes", 30)),
+                    "priority_score": prio,
+                    "energy_level": str(item.get("energy_level", "medium")).lower(),
+                    "manager_directive": str(item.get("manager_directive", "AI batch estimated focus block.")),
+                    "reasoning": "Batch AI estimated"
+                }
 
-            task.estimated_minutes = res_dict["estimated_minutes"]
-            task.priority_score = res_dict["priority_score"]
-            task.energy = res_dict["energy_level"]
-            task.manager_directive = res_dict["manager_directive"]
-            task.flexible = bool(data.get("flexible", True))
-            return task
+                chash = task_hashes[t.id]
+                self.db.save_cached_estimate(chash, est_dict)
+
+                t.estimated_minutes = est_dict["estimated_minutes"]
+                t.priority_score = est_dict["priority_score"]
+                t.energy = est_dict["energy_level"]
+                t.manager_directive = est_dict["manager_directive"]
+                t.flexible = bool(item.get("flexible", True))
+
+            logger.info(f"Batch AI estimation complete for {len(uncached_tasks)} tasks via 1 Gemini API call.")
 
         except Exception as e:
-            logger.error(f"Gemini API estimation error for task '{task.title}': {e}. Using fallback values.")
-            task.estimated_minutes = task.estimated_minutes or config.ai.default_duration_minutes
-            prio = task.priority_score or config.ai.default_priority
-            if prio > 5:
-                prio = 3
-            task.priority_score = max(1, min(5, prio))
-            return task
+            logger.error(f"Gemini API batch estimation error: {e}. Using fallback default values.")
+            for t in uncached_tasks:
+                t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
+                prio = t.priority_score or config.ai.default_priority
+                if prio > 5:
+                    prio = 3
+                t.priority_score = max(1, min(5, prio))
+
+        return tasks
+
+    def estimate_task(self, task: Task) -> Task:
+        res = self.estimate_tasks_batch([task])
+        return res[0] if res else task

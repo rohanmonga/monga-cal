@@ -79,10 +79,8 @@ class DaemonService:
 
             self.status.tasks_count = len(tasks)
 
-            estimated_tasks: List[Task] = []
-            for t in tasks:
-                est_task = self.ai.estimate_task(t)
-                estimated_tasks.append(est_task)
+            # Single batched AI estimation call
+            estimated_tasks = self.ai.estimate_tasks_batch(tasks)
 
             last_plan = self.db.get_latest_plan() or []
 

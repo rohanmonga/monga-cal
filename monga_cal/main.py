@@ -44,7 +44,6 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -157,7 +156,7 @@ async def get_plan():
             t.priority_score = max(1, min(5, t.priority_score))
         tasks.append(t)
 
-    estimated_tasks = [daemon_service.ai.estimate_task(t) for t in tasks]
+    estimated_tasks = daemon_service.ai.estimate_tasks_batch(tasks)
     for et in estimated_tasks:
         if et.priority_score > 5:
             et.priority_score = 3
