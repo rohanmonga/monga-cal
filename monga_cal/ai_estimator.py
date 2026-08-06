@@ -28,7 +28,8 @@ class AIEstimator:
                 logger.warning(f"Could not initialize Gemini Client: {e}")
 
     def _get_content_hash(self, task: Task) -> str:
-        data = f"{task.id}|{task.title}|{task.notes or ''}|{task.priority_raw}"
+        due_str = task.due.isoformat() if task.due else ""
+        data = f"{task.id}|{task.title}|{task.notes or ''}|{task.priority_raw}|{due_str}"
         return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
     def estimate_task(self, task: Task) -> Task:
@@ -37,7 +38,7 @@ class AIEstimator:
         content_hash = self._get_content_hash(task)
         cached = self.db.get_cached_estimate(content_hash)
         
-        if cached and "estimated_minutes" in cached:
+        if cached and "estimated_minutes" in cached and cached["estimated_minutes"]:
             task.estimated_minutes = cached["estimated_minutes"]
             task.priority_score = cached["priority_score"]
             task.energy = cached.get("energy_level", "medium")
@@ -122,7 +123,7 @@ User Past Completion Velocity:
                 else:
                     logger.error(f"Gemini AI Manager error for '{task.title}': {e}")
 
-        logger.info(f"Applying & caching heuristic estimate for task '{task.title}'")
+        logger.info(f"Applying & caching clean fallback estimate for task '{task.title}'")
         self._apply_fallback(task)
         
         estimate_dict = {
@@ -140,19 +141,7 @@ User Past Completion Velocity:
         return task
 
     def _apply_fallback(self, task: Task):
-        title_lower = task.title.lower()
-        if any(w in title_lower for w in ["call", "email", "buy", "order", "clean", "pay"]):
-            task.estimated_minutes = 20
-            task.energy = "low"
-            task.manager_directive = "Quick administrative task."
-            task.priority_score = 3
-        elif any(w in title_lower for w in ["tax", "code", "report", "write", "design", "study", "passport"]):
-            task.estimated_minutes = 60
-            task.energy = "high"
-            task.manager_directive = "High cognitive effort required."
-            task.priority_score = 1
-        else:
-            task.estimated_minutes = 30
-            task.energy = "medium"
-            task.manager_directive = "Standard priority work block."
-            task.priority_score = 5
+        task.estimated_minutes = config.ai.default_duration_minutes
+        task.energy = "medium"
+        task.manager_directive = "Standard priority focus block."
+        task.priority_score = config.ai.default_priority

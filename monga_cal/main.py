@@ -39,10 +39,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-cors_origins = [os.getenv("FRONTEND_URL", "http://localhost:8000"), "http://localhost:3000", "*"]
+cors_origins = [os.getenv("FRONTEND_URL", "http://localhost:8000"), "http://localhost:3000"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -105,7 +105,6 @@ async def update_config(req: ScheduleSettingsRequest, background_tasks: Backgrou
     background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": "Schedule configuration updated successfully", "config": get_config()}
 
-# Lightweight Fridge Tablet endpoint (<50ms, no solver overhead)
 @app.get("/api/today")
 async def get_today_schedule():
     plan_blocks = daemon_service.db.get_latest_plan() or []
@@ -122,7 +121,6 @@ async def get_today_schedule():
 
 @app.get("/api/plan")
 async def get_plan():
-    # BUG-1 FIX: Pass full 2-day window to fetch_fixed_events
     now = datetime.now()
     start_dt = datetime.combine(now.date(), datetime.min.time())
     end_dt = start_dt + timedelta(days=2)
@@ -155,8 +153,9 @@ async def add_task(req: AddTaskRequest, background_tasks: BackgroundTasks):
         list_name=config.google.tasks_list_name,
         priority_raw=req.priority_raw or 0,
     )
-    daemon_service.gservices.add_custom_task(new_task)
-    logger.info(f"Added task: '{req.title}'")
+    final_id = daemon_service.gservices.add_custom_task(new_task)
+    new_task.id = final_id
+    logger.info(f"Added task: '{req.title}' (ID: {final_id})")
     background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": "Task added successfully", "task": new_task.model_dump(mode="json")}
 

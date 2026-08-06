@@ -1,6 +1,5 @@
 import os
 import time
-import socket
 import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
@@ -13,8 +12,6 @@ from googleapiclient.discovery import build
 from monga_cal.models import Task, CalendarSlot, ScheduledBlock
 from monga_cal.config import config
 
-socket.setdefaulttimeout(10.0)
-
 logger = logging.getLogger(__name__)
 
 SCOPES = [
@@ -24,7 +21,6 @@ SCOPES = [
 
 MONGA_BLOCK_PREFIX = "BLOCK:"
 CACHE_TTL_SECONDS = 60
-DEFAULT_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 class GServicesClient:
     def __init__(self, creds_file: str = "credentials.json", token_file: str = "token.json"):
@@ -43,6 +39,13 @@ class GServicesClient:
         self._events_cache: Optional[List[CalendarSlot]] = None
         self._events_cache_key: str = ""
         self._events_cache_time: float = 0.0
+
+    @property
+    def timezone(self) -> ZoneInfo:
+        try:
+            return ZoneInfo(config.google.timezone)
+        except Exception:
+            return ZoneInfo("America/Los_Angeles")
 
     def invalidate_cache(self):
         self._tasks_cache = None
@@ -119,7 +122,8 @@ class GServicesClient:
             logger.error(f"Error finding/creating dedicated Google Tasks list: {e}")
             return "@default"
 
-    def add_custom_task(self, task: Task):
+    def add_custom_task(self, task: Task) -> str:
+        """Adds task to Google Tasks and returns authoritative task ID."""
         self.invalidate_cache()
         if self._connected and self.tasks_service:
             list_id = self.get_or_create_monga_list_id()
@@ -129,13 +133,16 @@ class GServicesClient:
                     "notes": task.notes or "",
                 }
                 res = self.tasks_service.tasks().insert(tasklist=list_id, body=task_body).execute()
-                task.id = res.get("id")
-                logger.info(f"Added new task '{task.title}' to Google Tasks list '{config.google.tasks_list_name}'")
+                new_id = res.get("id")
+                if new_id:
+                    task.id = new_id
+                    logger.info(f"Added task '{task.title}' to Google Tasks (ID: {task.id})")
             except Exception as e:
                 logger.error(f"Error inserting task into Google Tasks API: {e}")
 
         self._custom_tasks = [t for t in self._custom_tasks if t.id != task.id]
         self._custom_tasks.append(task)
+        return task.id
 
     def fetch_tasks(self) -> List[Task]:
         now_time = time.time()
@@ -189,7 +196,7 @@ class GServicesClient:
 
     def fetch_fixed_events(self, start_dt: datetime, end_dt: datetime) -> List[CalendarSlot]:
         now_time = time.time()
-        cache_key = f"{start_dt.isoformat()}_{end_dt.isoformat()}"
+        cache_key = f"{config.google.calendar_id}_{start_dt.isoformat()}_{end_dt.isoformat()}"
         if self._events_cache is not None and self._events_cache_key == cache_key and (now_time - self._events_cache_time) < CACHE_TTL_SECONDS:
             logger.info(f"Returning cached Google Calendar events ({len(self._events_cache)} events)")
             return self._events_cache
@@ -199,8 +206,8 @@ class GServicesClient:
 
         slots: List[CalendarSlot] = []
         try:
-            t_min_dt = datetime.combine(start_dt.date(), datetime.min.time()).replace(tzinfo=DEFAULT_TIMEZONE)
-            t_max_dt = datetime.combine(end_dt.date(), datetime.max.time()).replace(tzinfo=DEFAULT_TIMEZONE)
+            t_min_dt = datetime.combine(start_dt.date(), datetime.min.time()).replace(tzinfo=self.timezone)
+            t_max_dt = datetime.combine(end_dt.date(), datetime.max.time()).replace(tzinfo=self.timezone)
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
@@ -247,13 +254,17 @@ class GServicesClient:
     def sync_scheduled_blocks(
         self, blocks: List[ScheduledBlock], start_dt: datetime, end_dt: datetime
     ) -> bool:
+        """
+        ATOMIC CALENDAR SYNC (Create-then-Delete): Inserts new blocks first before deleting old blocks
+        to prevent event data loss if network calls fail.
+        """
         if not self._connected or not self.calendar_service:
             logger.info(f"Mock mode: Syncing {len(blocks)} Manager blocks to Google Calendar.")
             return True
 
         try:
-            t_min_dt = datetime.combine(start_dt.date() - timedelta(days=1), datetime.min.time()).replace(tzinfo=DEFAULT_TIMEZONE)
-            t_max_dt = datetime.combine(end_dt.date() + timedelta(days=2), datetime.max.time()).replace(tzinfo=DEFAULT_TIMEZONE)
+            t_min_dt = datetime.combine(start_dt.date() - timedelta(days=1), datetime.min.time()).replace(tzinfo=self.timezone)
+            t_max_dt = datetime.combine(end_dt.date() + timedelta(days=2), datetime.max.time()).replace(tzinfo=self.timezone)
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
@@ -263,30 +274,22 @@ class GServicesClient:
             ).execute()
 
             existing_items = events_result.get("items", [])
-            deleted_count = 0
-            for ev in existing_items:
-                summary = ev.get("summary", "")
-                is_monga = summary.startswith(MONGA_BLOCK_PREFIX) or ev.get("extendedProperties", {}).get("private", {}).get("monga_block") == "true"
-                if is_monga:
-                    try:
-                        self.calendar_service.events().delete(
-                            calendarId=config.google.calendar_id,
-                            eventId=ev["id"]
-                        ).execute()
-                        deleted_count += 1
-                    except Exception as ex:
-                        logger.warning(f"Error deleting old Google Calendar block: {ex}")
+            old_block_ids = [
+                ev["id"] for ev in existing_items
+                if ev.get("summary", "").startswith(MONGA_BLOCK_PREFIX) or
+                ev.get("extendedProperties", {}).get("private", {}).get("monga_block") == "true"
+            ]
 
-            if deleted_count > 0:
-                logger.info(f"Deduplicated & purged {deleted_count} old schedule blocks from Google Calendar.")
+            created_event_ids = []
 
+            # 1. Insert new blocks
             for b in blocks:
                 summary = f"{MONGA_BLOCK_PREFIX} {b.task_title} (est {b.estimated_minutes}m) [P{b.priority_score}]"
                 desc_text = f"📋 Manager Directive: {b.manager_directive or 'Focus block'}\n⚡ Energy: {b.energy} | Priority: P{b.priority_score}\nX-MONGA-TASK-UID:{b.task_id}"
 
                 if b.start.tzinfo is None:
-                    start_dt_local = b.start.replace(tzinfo=DEFAULT_TIMEZONE)
-                    end_dt_local = b.end.replace(tzinfo=DEFAULT_TIMEZONE)
+                    start_dt_local = b.start.replace(tzinfo=self.timezone)
+                    end_dt_local = b.end.replace(tzinfo=self.timezone)
                 else:
                     start_dt_local = b.start
                     end_dt_local = b.end
@@ -296,11 +299,11 @@ class GServicesClient:
                     "description": desc_text,
                     "start": {
                         "dateTime": start_dt_local.isoformat(),
-                        "timeZone": "America/Los_Angeles"
+                        "timeZone": config.google.timezone
                     },
                     "end": {
                         "dateTime": end_dt_local.isoformat(),
-                        "timeZone": "America/Los_Angeles"
+                        "timeZone": config.google.timezone
                     },
                     "extendedProperties": {
                         "private": {
@@ -309,12 +312,27 @@ class GServicesClient:
                         }
                     }
                 }
-                self.calendar_service.events().insert(
+                res = self.calendar_service.events().insert(
                     calendarId=config.google.calendar_id,
                     body=event_body
                 ).execute()
+                if res.get("id"):
+                    created_event_ids.append(res["id"])
 
-            logger.info(f"Successfully synced {len(blocks)} Manager blocks to Primary Google Calendar in America/Los_Angeles timezone.")
+            # 2. Delete old blocks cleanly
+            deleted_count = 0
+            for old_id in old_block_ids:
+                if old_id not in created_event_ids:
+                    try:
+                        self.calendar_service.events().delete(
+                            calendarId=config.google.calendar_id,
+                            eventId=old_id
+                        ).execute()
+                        deleted_count += 1
+                    except Exception as ex:
+                        logger.warning(f"Error deleting old Google Calendar block {old_id}: {ex}")
+
+            logger.info(f"Atomic Sync: Created {len(created_event_ids)} new blocks & purged {deleted_count} old blocks on Google Calendar.")
             return True
         except Exception as e:
             logger.error(f"Error syncing blocks to Google Calendar: {e}")

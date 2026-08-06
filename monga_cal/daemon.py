@@ -3,7 +3,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from monga_cal.models import Task, CalendarSlot, ScheduledBlock, SchedulePlan, SyncStatus
 from monga_cal.db import Database
 from monga_cal.ai_estimator import AIEstimator
@@ -28,10 +28,34 @@ class DaemonService:
 
     def compute_plan_hash(self, blocks: List[ScheduledBlock]) -> str:
         data = [
-            f"{b.task_id}|{b.start.isoformat()}|{b.end.isoformat()}"
+            f"{b.task_id}|{b.start.isoformat()}|{b.end.isoformat()}|{b.priority_score}"
             for b in blocks
         ]
         return hashlib.sha256(";".join(data).encode("utf-8")).hexdigest()
+
+    def should_sync_calendar(self, new_blocks: List[ScheduledBlock], old_blocks: List[Dict[str, Any]]) -> bool:
+        """Anti-thrash check: Only sync if blocks count changes or any block moves > anti_thrash_threshold_minutes."""
+        if not old_blocks:
+            return True
+        if len(new_blocks) != len(old_blocks):
+            return True
+
+        threshold = config.scheduler.anti_thrash_threshold_minutes
+        old_map = {b.get("task_id"): b for b in old_blocks}
+
+        for nb in new_blocks:
+            ob = old_map.get(nb.task_id)
+            if not ob:
+                return True
+            try:
+                ob_start = datetime.fromisoformat(ob["start"])
+                if abs((nb.start - ob_start).total_seconds()) / 60.0 >= threshold:
+                    logger.info(f"Block '{nb.task_title}' moved >= {threshold}m. Resyncing calendar.")
+                    return True
+            except Exception:
+                return True
+
+        return False
 
     async def run_sync_cycle(self, force_calendar_sync: bool = False) -> SchedulePlan:
         self.status.status = "syncing"
@@ -63,16 +87,18 @@ class DaemonService:
             self.status.scheduled_blocks_count = len(plan.blocks)
 
             new_hash = self.compute_plan_hash(plan.blocks)
-            last_hash = self.db.get_latest_plan_hash()
+            last_plan = self.db.get_latest_plan() or []
 
-            if force_calendar_sync or (new_hash != last_hash):
+            should_sync = force_calendar_sync or self.should_sync_calendar(plan.blocks, last_plan)
+
+            if should_sync:
                 logger.info(f"Syncing {len(plan.blocks)} schedule blocks to Google Calendar (force={force_calendar_sync})...")
                 synced = self.gservices.sync_scheduled_blocks(plan.blocks, start_dt, end_dt)
                 if synced:
                     self.db.save_plan(new_hash, plan.blocks)
                     self.status.last_reschedule_time = datetime.now()
             else:
-                logger.info("Schedule unchanged. Skipping Google Calendar update.")
+                logger.info("Schedule changes below anti-thrash threshold. Skipping Google Calendar update.")
 
             self.status.status = "idle"
             self.status.last_error = None

@@ -1,10 +1,10 @@
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 class EstimationResult(BaseModel):
-    estimated_minutes: int = 30
-    priority_score: int = 5
+    estimated_minutes: int = Field(default=30, ge=5, le=480)
+    priority_score: int = Field(default=5, ge=1, le=10)
     energy_level: str = "medium"
     manager_directive: str = "Standard priority work block."
     reasoning: Optional[str] = ""
@@ -17,8 +17,8 @@ class Task(BaseModel):
     due: Optional[datetime] = None
     completed: bool = False
     priority_raw: int = 0
-    estimated_minutes: Optional[int] = None
-    priority_score: int = 5
+    estimated_minutes: Optional[int] = Field(default=None, ge=5, le=480)
+    priority_score: int = Field(default=5, ge=1, le=10)
     energy: str = "medium"
     manager_directive: Optional[str] = ""
     flexible: bool = True
@@ -47,14 +47,14 @@ class SchedulePlan(BaseModel):
     blocks: List[ScheduledBlock] = Field(default_factory=list)
     unscheduled_task_ids: List[str] = Field(default_factory=list)
     solver_stats: Dict[str, Any] = Field(default_factory=dict)
-    generated_at: datetime = Field(default_factory=datetime.now)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class TaskCompletionRecord(BaseModel):
     task_id: str
     title: str
     estimated_minutes: int
     actual_minutes: int
-    completed_at: datetime = Field(default_factory=datetime.now)
+    completed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class SyncStatus(BaseModel):
     last_poll_time: Optional[datetime] = None

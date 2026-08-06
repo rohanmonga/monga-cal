@@ -1,4 +1,5 @@
 import os
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import yaml
@@ -7,9 +8,12 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 class GoogleConfig(BaseModel):
     tasks_list_name: str = "Monga Cal"
     calendar_id: str = "primary"
+    timezone: str = "America/Los_Angeles"
 
 class ICloudConfig(BaseModel):
     caldav_url: str = "https://caldav.icloud.com/"
@@ -39,7 +43,7 @@ class AIConfig(BaseModel):
 
 class DaemonConfig(BaseModel):
     poll_interval_seconds: int = 180
-    db_path: str = "monga_cal.db"
+    db_path: str = Field(default_factory=lambda: os.getenv("DB_PATH", "monga_cal.db"))
 
 class AppConfig(BaseModel):
     google: GoogleConfig = Field(default_factory=GoogleConfig)
@@ -63,14 +67,14 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
 
     try:
         from monga_cal.db import Database
-        db_path = daemon_data.get("db_path", "monga_cal.db")
+        db_path = daemon_data.get("db_path") or os.getenv("DB_PATH", "monga_cal.db")
         if Path(db_path).exists():
             db = Database(db_path)
             saved_settings = db.get_setting("scheduler_settings")
             if saved_settings and isinstance(saved_settings, dict):
                 scheduler_data.update(saved_settings)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Could not load settings override from DB: {e}")
 
     return AppConfig(
         google=GoogleConfig(**google_data),
@@ -82,10 +86,16 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
 
 def save_config(app_config: AppConfig, config_file: str = "config.yaml"):
     config_dict = app_config.model_dump()
+    # Exclude secrets from plaintext YAML export
+    if "ai" in config_dict:
+        config_dict["ai"].pop("api_key", None)
+    if "icloud" in config_dict:
+        config_dict["icloud"].pop("password", None)
+        
     try:
         with open(config_file, "w", encoding="utf-8") as f:
             yaml.safe_dump(config_dict, f, default_flow_style=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Error saving config.yaml: {e}")
 
 config = load_config()
