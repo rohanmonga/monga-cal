@@ -1,147 +1,119 @@
-import os
-import hashlib
 import json
+import hashlib
 import logging
-import time
-from typing import Optional, List, Dict, Any
-from google import genai
-from google.genai import types
+from typing import List, Optional
+
+try:
+    from google import genai
+except ImportError:
+    genai = None
+
 from monga_cal.models import Task, EstimationResult
 from monga_cal.db import Database
 from monga_cal.config import config
 
 logger = logging.getLogger(__name__)
 
-_last_gemini_rate_limit_time = 0.0
-GEMINI_BACKOFF_SECONDS = 300
-
 class AIEstimator:
-    def __init__(self, db: Optional[Database] = None):
-        self.db = db or Database(config.daemon.db_path)
+    def __init__(self, db: Database):
+        self.db = db
         self.api_key = config.ai.api_key
-        self.model_name = config.ai.model_name
-        self.client = None
-        if self.api_key:
+        if self.api_key and genai:
             try:
                 self.client = genai.Client(api_key=self.api_key)
             except Exception as e:
-                logger.warning(f"Could not initialize Gemini Client: {e}")
+                logger.warning(f"Failed to initialize GenAI client: {e}")
+                self.client = None
+        else:
+            self.client = None
+            if not self.api_key:
+                logger.warning("No GEMINI_API_KEY found. AI Estimator will fallback to default heuristics.")
 
-    def _get_content_hash(self, task: Task) -> str:
-        due_str = task.due.isoformat() if task.due else ""
-        data = f"{task.id}|{task.title}|{task.notes or ''}|{task.priority_raw}|{due_str}"
-        return hashlib.sha256(data.encode("utf-8")).hexdigest()
+    def _hash_task(self, task: Task) -> str:
+        raw_str = f"{task.title}_{task.notes}_{task.priority_raw}"
+        return hashlib.md5(raw_str.encode("utf-8")).hexdigest()
 
     def estimate_task(self, task: Task) -> Task:
-        global _last_gemini_rate_limit_time
-        
-        content_hash = self._get_content_hash(task)
+        content_hash = self._hash_task(task)
         cached = self.db.get_cached_estimate(content_hash)
-        
-        if cached and "estimated_minutes" in cached and cached["estimated_minutes"]:
-            task.estimated_minutes = cached["estimated_minutes"]
-            task.priority_score = cached["priority_score"]
+        if cached:
+            prio = cached.get("priority_score", 3)
+            if prio > 5:
+                prio = 3
+            task.estimated_minutes = cached.get("estimated_minutes", 30)
+            task.priority_score = max(1, min(5, prio))
             task.energy = cached.get("energy_level", "medium")
-            task.manager_directive = cached.get("manager_directive", "Standard priority work block.")
-            
-            override_prio = self.db.get_priority_override(task.id)
-            if override_prio is not None:
-                task.priority_score = override_prio
+            task.manager_directive = cached.get("manager_directive", "Standard priority focus block.")
+            task.flexible = True
             return task
 
-        now_time = time.time()
-        in_backoff = (now_time - _last_gemini_rate_limit_time) < GEMINI_BACKOFF_SECONDS
+        history = self.db.get_recent_completion_history(limit=config.ai.history_limit)
+        history_summary = "\n".join([
+            f"- '{h['title']}': estimated {h['estimated_minutes']}m, took {h['actual_minutes']}m"
+            for h in history
+        ]) if history else "No completion history yet."
 
-        if self.client and not in_backoff:
-            try:
-                history = self.db.get_recent_completion_history(config.ai.history_limit)
-                history_text = "\n".join(
-                    [
-                        f"- Task '{h['title']}': Manager assigned {h['estimated_minutes']}m, actually took {h['actual_minutes']}m"
-                        for h in history
-                    ]
-                ) if history else "No past completion history."
-
-                due_str = task.due.strftime("%Y-%m-%d %H:%M") if task.due else "No due date"
-
-                prompt = f"""
-You are an AI Executive Workload Manager.
-Evaluate this pending user task and assign:
-1. Exact duration in minutes (estimated_minutes, between 15 and 240).
-2. Priority score from 1 (highest/urgent) to 10 (lowest priority) (priority_score). Note: P1 is urgent/top priority, P10 is lowest.
-3. Required energy level: 'high' (deep focus), 'medium' (standard work), or 'low' (quick admin/errands) (energy_level).
-4. Coaching Note (manager_directive): A 1 sentence directive for completing this task.
+        prompt = f"""You are an executive workload manager AI. Estimate the required duration and priority for this task based on user history.
 
 Task Title: "{task.title}"
-Notes: "{task.notes or ''}"
-Due Date: {due_str}
+Task Notes: "{task.notes}"
+Priority (Raw): {task.priority_raw}
 
-User Past Completion Velocity:
-{history_text}
+User Task Completion History:
+{history_summary}
+
+Respond ONLY with a valid JSON object matching this exact schema:
+{{
+  "estimated_minutes": <int, e.g. 15, 30, 45, 60, 90, 120>,
+  "priority_score": <int 1-5 where 1=ASAP, 2=High, 3=Regular, 4=Next Week, 5=Tracking>,
+  "energy_level": <string, "high" | "medium" | "low">,
+  "manager_directive": <string, 1 brief sentence justifying the estimate>,
+  "flexible": <boolean, true if can be rescheduled>
+}}
 """
-                logger.info(f"Hitting Gemini API for NEW task '{task.title}' (Content Hash: {content_hash[:8]})...")
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=EstimationResult,
-                        temperature=0.2,
-                    ),
-                )
 
-                if response.text:
-                    parsed_json = json.loads(response.text)
-                    estimated_min = int(parsed_json.get("estimated_minutes", config.ai.default_duration_minutes))
-                    priority_score = int(parsed_json.get("priority_score", config.ai.default_priority))
-                    energy = str(parsed_json.get("energy_level", "medium")).lower()
-                    manager_directive = str(parsed_json.get("manager_directive", "Standard priority work block."))
+        if not self.client:
+            task.estimated_minutes = task.estimated_minutes or config.ai.default_duration_minutes
+            prio = task.priority_score or config.ai.default_priority
+            if prio > 5:
+                prio = 3
+            task.priority_score = max(1, min(5, prio))
+            return task
 
-                    estimate_dict = {
-                        "estimated_minutes": estimated_min,
-                        "priority_score": priority_score,
-                        "energy_level": energy,
-                        "manager_directive": manager_directive,
-                    }
-                    self.db.save_cached_estimate(content_hash, estimate_dict)
+        try:
+            response = self.client.models.generate_content(
+                model=config.ai.model_name,
+                contents=prompt,
+            )
+            data = json.loads(response.text)
+            
+            prio = int(data.get("priority_score", 3))
+            if prio > 5:
+                prio = 3
+            prio = max(1, min(5, prio))
 
-                    task.estimated_minutes = estimated_min
-                    task.priority_score = priority_score
-                    task.energy = energy
-                    task.manager_directive = manager_directive
-                    
-                    override_prio = self.db.get_priority_override(task.id)
-                    if override_prio is not None:
-                        task.priority_score = override_prio
-                    return task
+            res_dict = {
+                "estimated_minutes": int(data.get("estimated_minutes", 30)),
+                "priority_score": prio,
+                "energy_level": str(data.get("energy_level", "medium")).lower(),
+                "manager_directive": str(data.get("manager_directive", "AI estimated task parameters.")),
+                "reasoning": "AI estimated"
+            }
 
-            except Exception as e:
-                err_str = str(e)
-                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    logger.warning(f"Gemini API 429 Rate Limit hit. Entering {GEMINI_BACKOFF_SECONDS}s backoff period.")
-                    _last_gemini_rate_limit_time = now_time
-                else:
-                    logger.error(f"Gemini AI Manager error for '{task.title}': {e}")
+            self.db.save_cached_estimate(content_hash, res_dict)
 
-        logger.info(f"Applying & caching clean fallback estimate for task '{task.title}'")
-        self._apply_fallback(task)
-        
-        estimate_dict = {
-            "estimated_minutes": task.estimated_minutes,
-            "priority_score": task.priority_score,
-            "energy_level": task.energy,
-            "manager_directive": task.manager_directive,
-        }
-        self.db.save_cached_estimate(content_hash, estimate_dict)
+            task.estimated_minutes = res_dict["estimated_minutes"]
+            task.priority_score = res_dict["priority_score"]
+            task.energy = res_dict["energy_level"]
+            task.manager_directive = res_dict["manager_directive"]
+            task.flexible = bool(data.get("flexible", True))
+            return task
 
-        override_prio = self.db.get_priority_override(task.id)
-        if override_prio is not None:
-            task.priority_score = override_prio
-
-        return task
-
-    def _apply_fallback(self, task: Task):
-        task.estimated_minutes = config.ai.default_duration_minutes
-        task.energy = "medium"
-        task.manager_directive = "Standard priority focus block."
-        task.priority_score = config.ai.default_priority
+        except Exception as e:
+            logger.error(f"Gemini API estimation error for task '{task.title}': {e}. Using fallback values.")
+            task.estimated_minutes = task.estimated_minutes or config.ai.default_duration_minutes
+            prio = task.priority_score or config.ai.default_priority
+            if prio > 5:
+                prio = 3
+            task.priority_score = max(1, min(5, prio))
+            return task

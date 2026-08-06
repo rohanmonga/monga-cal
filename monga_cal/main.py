@@ -143,16 +143,29 @@ async def get_plan():
     tasks = []
     for t in raw_tasks:
         t.deferred_until = daemon_service.db.get_deferred_until(t.id)
-        # Apply SQLite DB priority overrides (clamped 1-5)
+        # Apply SQLite DB priority overrides (strictly clamped 1-5)
         saved_prio = daemon_service.db.get_priority_override(t.id)
         if saved_prio:
+            if saved_prio > 5:
+                saved_prio = 3
             t.priority_score = max(1, min(5, saved_prio))
         else:
+            if t.priority_score > 5:
+                t.priority_score = 3
             t.priority_score = max(1, min(5, t.priority_score))
         tasks.append(t)
 
     estimated_tasks = [daemon_service.ai.estimate_task(t) for t in tasks]
+    for et in estimated_tasks:
+        if et.priority_score > 5:
+            et.priority_score = 3
+        et.priority_score = max(1, min(5, et.priority_score))
+
     plan = daemon_service.scheduler.solve(estimated_tasks, fixed_events, start_time=now)
+    for b in plan.blocks:
+        if b.priority_score > 5:
+            b.priority_score = 3
+        b.priority_score = max(1, min(5, b.priority_score))
 
     return {
         "status": daemon_service.status.model_dump(mode="json"),
@@ -181,7 +194,11 @@ async def add_task(req: AddTaskRequest, background_tasks: BackgroundTasks):
 
 @app.post("/api/tasks/{task_id}/priority")
 async def update_task_priority(task_id: str, req: PriorityOverrideRequest):
-    prio = max(1, min(5, req.priority_score))
+    prio = req.priority_score
+    if prio > 5:
+        prio = 3
+    prio = max(1, min(5, prio))
+    
     daemon_service.db.save_priority_override(task_id, prio)
     logger.info(f"Updated task '{task_id}' priority to P{prio}")
     
