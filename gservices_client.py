@@ -205,18 +205,14 @@ class GServicesClient:
 
         slots: List[CalendarSlot] = []
         try:
-            # Ensure ISO 8601 formatted with local timezone or Z
-            if start_dt.tzinfo is None:
-                time_min = start_dt.astimezone().isoformat()
-                time_max = end_dt.astimezone().isoformat()
-            else:
-                time_min = start_dt.isoformat()
-                time_max = end_dt.isoformat()
+            # Generate ISO range
+            t_min = datetime.combine(start_dt.date(), datetime.min.time()).astimezone().isoformat()
+            t_max = datetime.combine(end_dt.date(), datetime.max.time()).astimezone().isoformat()
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
+                timeMin=t_min,
+                timeMax=t_max,
                 singleEvents=True,
                 orderBy="startTime"
             ).execute()
@@ -224,7 +220,7 @@ class GServicesClient:
             events = events_result.get("items", [])
             for event in events:
                 summary = event.get("summary", "")
-                if summary.startswith(MONGA_BLOCK_PREFIX):
+                if summary.startswith(MONGA_BLOCK_PREFIX) or "monga_block" in event.get("extendedProperties", {}).get("private", {}):
                     continue
 
                 start = event.get("start", {}).get("dateTime") or event.get("start", {}).get("date")
@@ -258,48 +254,70 @@ class GServicesClient:
     def sync_scheduled_blocks(
         self, blocks: List[ScheduledBlock], start_dt: datetime, end_dt: datetime
     ) -> bool:
-        """Pushes Manager-assigned task blocks to Primary Google Calendar with proper local timezone formatting."""
+        """
+        Pushes Manager-assigned task blocks to Primary Google Calendar with thorough deduplication
+        and accurate local timezone offsets.
+        """
         if not self._connected or not self.calendar_service:
             logger.info(f"Mock mode: Syncing {len(blocks)} Manager blocks to Google Calendar.")
             return True
 
         try:
-            if start_dt.tzinfo is None:
-                time_min = start_dt.astimezone().isoformat()
-                time_max = end_dt.astimezone().isoformat()
-            else:
-                time_min = start_dt.isoformat()
-                time_max = end_dt.isoformat()
+            # 1. Fetch ALL calendar events in range (without relying on async Google search query 'q')
+            t_min = datetime.combine(start_dt.date() - timedelta(days=1), datetime.min.time()).astimezone().isoformat()
+            t_max = datetime.combine(end_dt.date() + timedelta(days=2), datetime.max.time()).astimezone().isoformat()
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                q=MONGA_BLOCK_PREFIX
+                timeMin=t_min,
+                timeMax=t_max,
+                singleEvents=True
             ).execute()
 
-            for old_event in events_result.get("items", []):
-                try:
-                    self.calendar_service.events().delete(
-                        calendarId=config.google.calendar_id,
-                        eventId=old_event["id"]
-                    ).execute()
-                except Exception as ex:
-                    logger.warning(f"Error deleting old Google Calendar block: {ex}")
+            # 2. Find and delete ALL old BLOCK: events (rigorous deduplication)
+            existing_items = events_result.get("items", [])
+            deleted_count = 0
+            for ev in existing_items:
+                summary = ev.get("summary", "")
+                is_monga = summary.startswith(MONGA_BLOCK_PREFIX) or ev.get("extendedProperties", {}).get("private", {}).get("monga_block") == "true"
+                if is_monga:
+                    try:
+                        self.calendar_service.events().delete(
+                            calendarId=config.google.calendar_id,
+                            eventId=ev["id"]
+                        ).execute()
+                        deleted_count += 1
+                    except Exception as ex:
+                        logger.warning(f"Error deleting old Google Calendar block: {ex}")
 
+            if deleted_count > 0:
+                logger.info(f"Deduplicated & purged {deleted_count} old schedule blocks from Google Calendar.")
+
+            # 3. Get local timezone string (e.g. America/Los_Angeles or local tz)
+            local_tz_str = datetime.now().astimezone().tzinfo.tzname(None) or "America/Los_Angeles"
+
+            # 4. Insert new blocks with exact local ISO formatting
             for b in blocks:
                 summary = f"{MONGA_BLOCK_PREFIX} {b.task_title} (est {b.estimated_minutes}m) [P{b.priority_score}]"
                 desc_text = f"📋 Manager Directive: {b.manager_directive or 'Focus block'}\n⚡ Energy: {b.energy} | Priority: P{b.priority_score}\nX-MONGA-TASK-UID:{b.task_id}"
 
-                # Format naive datetimes with local system timezone
-                start_iso = b.start.astimezone().isoformat() if b.start.tzinfo is None else b.start.isoformat()
-                end_iso = b.end.astimezone().isoformat() if b.end.tzinfo is None else b.end.isoformat()
+                # Format start and end in local system timezone (e.g. 2026-08-06T08:00:00-07:00)
+                if b.start.tzinfo is None:
+                    start_dt_local = b.start.astimezone()
+                    end_dt_local = b.end.astimezone()
+                else:
+                    start_dt_local = b.start
+                    end_dt_local = b.end
 
                 event_body = {
                     "summary": summary,
                     "description": desc_text,
-                    "start": {"dateTime": start_iso},
-                    "end": {"dateTime": end_iso},
+                    "start": {
+                        "dateTime": start_dt_local.isoformat()
+                    },
+                    "end": {
+                        "dateTime": end_dt_local.isoformat()
+                    },
                     "extendedProperties": {
                         "private": {
                             "monga_task_id": b.task_id,
@@ -312,7 +330,7 @@ class GServicesClient:
                     body=event_body
                 ).execute()
 
-            logger.info(f"Successfully synced {len(blocks)} Manager blocks to Primary Google Calendar.")
+            logger.info(f"Successfully synced {len(blocks)} Manager blocks to Primary Google Calendar in local timezone.")
             return True
         except Exception as e:
             logger.error(f"Error syncing blocks to Google Calendar: {e}")
