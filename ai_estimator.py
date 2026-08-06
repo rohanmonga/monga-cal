@@ -2,6 +2,7 @@ import os
 import hashlib
 import json
 import logging
+import time
 from typing import Optional, List, Dict, Any
 from google import genai
 from google.genai import types
@@ -10,6 +11,10 @@ from db import Database
 from config import config
 
 logger = logging.getLogger(__name__)
+
+# Global rate limit backoff tracker
+_last_gemini_rate_limit_time = 0.0
+GEMINI_BACKOFF_SECONDS = 300  # If rate-limited (429), pause Gemini API calls for 5 minutes
 
 class AIEstimator:
     def __init__(self, db: Optional[Database] = None):
@@ -24,24 +29,41 @@ class AIEstimator:
                 logger.warning(f"Could not initialize Gemini Client: {e}")
 
     def _get_content_hash(self, task: Task) -> str:
-        data = f"{task.title}|{task.notes or ''}|{task.list_name}|{task.priority_raw}"
+        data = f"{task.id}|{task.title}|{task.notes or ''}|{task.priority_raw}"
         return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
     def estimate_task(self, task: Task) -> Task:
         """
         Acts as your AI Executive Manager: assigns duration, priority score,
-        energy level, and a manager's directive using Gemini API and historical completion velocity.
-        Check for user priority overrides first.
+        energy level, and a manager directive using Gemini API.
+        
+        GUARANTEE: Gemini is hit EXACTLY ONCE per task lifetime.
+        Estimates (including fallback estimates) are permanently cached in SQLite DB.
         """
+        global _last_gemini_rate_limit_time
+        
+        # 1. Check SQLite DB cache first (by content hash)
         content_hash = self._get_content_hash(task)
         cached = self.db.get_cached_estimate(content_hash)
         
-        if cached and "manager_directive" in cached:
+        if cached and "estimated_minutes" in cached:
             task.estimated_minutes = cached["estimated_minutes"]
             task.priority_score = cached["priority_score"]
-            task.energy = cached["energy_level"]
-            task.manager_directive = cached["manager_directive"]
-        elif self.client:
+            task.energy = cached.get("energy_level", "medium")
+            task.manager_directive = cached.get("manager_directive", "Standard priority work block.")
+            
+            # Apply user priority override if set
+            override_prio = self.db.get_priority_override(task.id)
+            if override_prio is not None:
+                task.priority_score = override_prio
+            return task
+
+        # 2. Check if we are in Gemini rate limit backoff period
+        now_time = time.time()
+        in_backoff = (now_time - _last_gemini_rate_limit_time) < GEMINI_BACKOFF_SECONDS
+
+        # 3. Call Gemini API if available and not in backoff
+        if self.client and not in_backoff:
             try:
                 history = self.db.get_recent_completion_history(config.ai.history_limit)
                 history_text = "\n".join(
@@ -49,25 +71,26 @@ class AIEstimator:
                         f"- Task '{h['title']}': Manager assigned {h['estimated_minutes']}m, actually took {h['actual_minutes']}m"
                         for h in history
                     ]
-                ) if history else "No past task completion history logged yet."
+                ) if history else "No past completion history."
 
                 due_str = task.due.strftime("%Y-%m-%d %H:%M") if task.due else "No due date"
 
                 prompt = f"""
-You are an elite, highly organized AI Executive Manager.
-Your job is to manage the user's workload by evaluating their pending task and assigning:
+You are an AI Executive Workload Manager.
+Evaluate this pending user task and assign:
 1. Exact duration in minutes (estimated_minutes, between 15 and 240).
 2. Priority score from 1 (lowest) to 10 (highest/urgent) (priority_score).
-3. Required energy level: 'high' (deep focus/complex), 'medium' (standard work), or 'low' (quick admin/errands) (energy_level).
-4. Direct Manager Coaching Note (manager_directive): A 1-2 sentence directive telling the user WHY this task is assigned this length and how to tackle it efficiently.
+3. Required energy level: 'high' (deep focus), 'medium' (standard work), or 'low' (quick admin/errands) (energy_level).
+4. Coaching Note (manager_directive): A 1 sentence directive for completing this task.
 
 Task Title: "{task.title}"
 Notes: "{task.notes or ''}"
 Due Date: {due_str}
 
-User's Past Completion Velocity:
+User Past Completion Velocity:
 {history_text}
 """
+                logger.info(f"Hitting Gemini API for NEW task '{task.title}' (Content Hash: {content_hash[:8]})...")
                 response = self.client.models.generate_content(
                     model=self.model_name,
                     contents=prompt,
@@ -83,7 +106,7 @@ User's Past Completion Velocity:
                     estimated_min = int(parsed_json.get("estimated_minutes", config.ai.default_duration_minutes))
                     priority_score = int(parsed_json.get("priority_score", config.ai.default_priority))
                     energy = str(parsed_json.get("energy_level", "medium")).lower()
-                    manager_directive = str(parsed_json.get("manager_directive", "Focus on completing this task in one uninterrupted block."))
+                    manager_directive = str(parsed_json.get("manager_directive", "Standard priority work block."))
 
                     estimate_dict = {
                         "estimated_minutes": estimated_min,
@@ -97,13 +120,32 @@ User's Past Completion Velocity:
                     task.priority_score = priority_score
                     task.energy = energy
                     task.manager_directive = manager_directive
-            except Exception as e:
-                logger.error(f"Gemini AI Manager error for '{task.title}': {e}")
-                self._apply_fallback(task)
-        else:
-            self._apply_fallback(task)
+                    
+                    override_prio = self.db.get_priority_override(task.id)
+                    if override_prio is not None:
+                        task.priority_score = override_prio
+                    return task
 
-        # Apply user custom priority override if present
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    logger.warning(f"Gemini API 429 Rate Limit hit. Entering {GEMINI_BACKOFF_SECONDS}s backoff period.")
+                    _last_gemini_rate_limit_time = now_time
+                else:
+                    logger.error(f"Gemini AI Manager error for '{task.title}': {e}")
+
+        # 4. Fallback heuristic (AND PERMANENTLY CACHE IT TO SQLITE SO WE NEVER RETRY GEMINI ON LOOP)
+        logger.info(f"Applying & caching heuristic estimate for task '{task.title}'")
+        self._apply_fallback(task)
+        
+        estimate_dict = {
+            "estimated_minutes": task.estimated_minutes,
+            "priority_score": task.priority_score,
+            "energy_level": task.energy,
+            "manager_directive": task.manager_directive,
+        }
+        self.db.save_cached_estimate(content_hash, estimate_dict)
+
         override_prio = self.db.get_priority_override(task.id)
         if override_prio is not None:
             task.priority_score = override_prio
@@ -112,17 +154,17 @@ User's Past Completion Velocity:
 
     def _apply_fallback(self, task: Task):
         title_lower = task.title.lower()
-        if any(w in title_lower for w in ["call", "email", "buy", "order", "clean"]):
+        if any(w in title_lower for w in ["call", "email", "buy", "order", "clean", "pay"]):
             task.estimated_minutes = 20
             task.energy = "low"
-            task.manager_directive = "Quick administrative task. Batch this with light errands."
-        elif any(w in title_lower for w in ["tax", "code", "report", "write", "design", "study"]):
+            task.manager_directive = "Quick administrative task."
+        elif any(w in title_lower for w in ["tax", "code", "report", "write", "design", "study", "passport"]):
             task.estimated_minutes = 60
             task.energy = "high"
-            task.manager_directive = "High cognitive effort required. Work in a single deep focus block."
+            task.manager_directive = "High cognitive effort required."
         else:
             task.estimated_minutes = 30
             task.energy = "medium"
-            task.manager_directive = "Standard priority work block. Stay focused until completion."
+            task.manager_directive = "Standard priority work block."
 
         task.priority_score = 5

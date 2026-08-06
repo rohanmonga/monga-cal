@@ -1,5 +1,6 @@
 import os
 import time
+import socket
 import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
@@ -10,6 +11,9 @@ from googleapiclient.discovery import build
 
 from models import Task, CalendarSlot, ScheduledBlock
 from config import config
+
+# Set default socket timeout for all network requests to prevent hanging
+socket.setdefaulttimeout(10.0)
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +90,7 @@ class GServicesClient:
             except Exception as e:
                 logger.error(f"Error building Google API services: {e}")
 
-        logger.warning("Google Workspace credentials not configured. Operating in mock/custom task mode.")
+        logger.warning("Google Workspace credentials not configured. Operating in custom task mode.")
         self._connected = False
         return False
 
