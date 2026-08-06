@@ -4,12 +4,12 @@ import json
 import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
-from models import Task, CalendarSlot, ScheduledBlock, SchedulePlan, SyncStatus
-from db import Database
-from ai_estimator import AIEstimator
-from gservices_client import GServicesClient
-from scheduler import Scheduler
-from config import config
+from monga_cal.models import Task, CalendarSlot, ScheduledBlock, SchedulePlan, SyncStatus
+from monga_cal.db import Database
+from monga_cal.ai_estimator import AIEstimator
+from monga_cal.gservices import GServicesClient
+from monga_cal.scheduler import Scheduler
+from monga_cal.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +34,10 @@ class DaemonService:
         return hashlib.sha256(";".join(data).encode("utf-8")).hexdigest()
 
     async def run_sync_cycle(self, force_calendar_sync: bool = False) -> SchedulePlan:
-        """Runs a complete sync cycle: fetch Google Tasks -> Gemini AI Manager -> OR-Tools CP-SAT -> Google Calendar Sync."""
         self.status.status = "syncing"
         self.status.last_poll_time = datetime.now()
 
         try:
-            # 1. Fetch tasks & fixed meetings from Google
             raw_tasks = self.gservices.fetch_tasks()
             now = datetime.now()
             start_dt = datetime.combine(now.date(), datetime.min.time())
@@ -47,7 +45,6 @@ class DaemonService:
 
             fixed_events = self.gservices.fetch_fixed_events(start_dt, end_dt)
             
-            # Attach deferred_until dates from SQLite DB
             tasks: List[Task] = []
             for t in raw_tasks:
                 def_date = self.db.get_deferred_until(t.id)
@@ -56,18 +53,15 @@ class DaemonService:
 
             self.status.tasks_count = len(tasks)
 
-            # 2. AI Estimation for tasks
             estimated_tasks: List[Task] = []
             for t in tasks:
                 est_task = self.ai.estimate_task(t)
                 estimated_tasks.append(est_task)
 
-            # 3. Solve scheduling with OR-Tools CP-SAT
             self.status.status = "solving"
             plan = self.scheduler.solve(estimated_tasks, fixed_events, start_time=now)
             self.status.scheduled_blocks_count = len(plan.blocks)
 
-            # 4. Anti-thrashing & Plan Hash check
             new_hash = self.compute_plan_hash(plan.blocks)
             last_hash = self.db.get_latest_plan_hash()
 

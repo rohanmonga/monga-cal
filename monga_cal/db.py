@@ -3,7 +3,7 @@ import hashlib
 import json
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any
-from models import TaskCompletionRecord, ScheduledBlock
+from monga_cal.models import TaskCompletionRecord, ScheduledBlock
 
 class Database:
     def __init__(self, db_path: str = "monga_cal.db"):
@@ -102,7 +102,6 @@ class Database:
             return None
 
     def save_priority_override(self, task_id: str, priority_score: int):
-        """Save priority override for a task in SQLite DB."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -115,7 +114,6 @@ class Database:
             conn.commit()
 
     def get_priority_override(self, task_id: str) -> Optional[int]:
-        """Fetch priority override for a task from SQLite DB."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(

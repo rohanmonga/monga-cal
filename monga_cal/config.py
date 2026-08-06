@@ -5,7 +5,6 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-# Load .env if present
 load_dotenv()
 
 class GoogleConfig(BaseModel):
@@ -20,7 +19,7 @@ class ICloudConfig(BaseModel):
     reminders_list_name: str = "Reminders"
 
 class SchedulerConfig(BaseModel):
-    active_days: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6]) # 0=Mon, 6=Sun
+    active_days: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
     work_start_hour: int = 8
     work_end_hour: int = 21
     buffer_minutes: int = 10
@@ -62,9 +61,8 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
     ai_data = config_data.get("ai", {})
     daemon_data = config_data.get("daemon", {})
 
-    # Check if DB contains saved scheduler settings (for 100% Docker volume persistence)
     try:
-        from db import Database
+        from monga_cal.db import Database
         db_path = daemon_data.get("db_path", "monga_cal.db")
         if Path(db_path).exists():
             db = Database(db_path)

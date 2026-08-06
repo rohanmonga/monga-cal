@@ -10,10 +10,9 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-from models import Task, CalendarSlot, ScheduledBlock
-from config import config
+from monga_cal.models import Task, CalendarSlot, ScheduledBlock
+from monga_cal.config import config
 
-# Set default socket timeout for all network requests to prevent hanging
 socket.setdefaulttimeout(10.0)
 
 logger = logging.getLogger(__name__)
@@ -24,7 +23,7 @@ SCOPES = [
 ]
 
 MONGA_BLOCK_PREFIX = "BLOCK:"
-CACHE_TTL_SECONDS = 60  # Cache Google API calls for 60 seconds
+CACHE_TTL_SECONDS = 60
 DEFAULT_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 class GServicesClient:
@@ -38,7 +37,6 @@ class GServicesClient:
         self._connected = False
         self._target_list_id: Optional[str] = None
 
-        # API Caching
         self._tasks_cache: Optional[List[Task]] = None
         self._tasks_cache_time: float = 0.0
 
@@ -47,7 +45,6 @@ class GServicesClient:
         self._events_cache_time: float = 0.0
 
     def invalidate_cache(self):
-        """Invalidates task and event caches to force fresh API calls on mutations."""
         self._tasks_cache = None
         self._tasks_cache_time = 0.0
         self._events_cache = None
@@ -55,7 +52,6 @@ class GServicesClient:
         logger.info("Invalidated Google Services API cache.")
 
     def connect(self) -> bool:
-        """Authenticate with Google OAuth2 for Google Tasks & Google Calendar APIs."""
         if os.path.exists(self.token_file):
             try:
                 self.creds = Credentials.from_authorized_user_file(self.token_file, SCOPES)
@@ -97,7 +93,6 @@ class GServicesClient:
         return False
 
     def get_or_create_monga_list_id(self) -> str:
-        """Finds or creates the dedicated 'Monga Cal' task list in Google Tasks."""
         if self._target_list_id:
             return self._target_list_id
 
@@ -125,7 +120,6 @@ class GServicesClient:
             return "@default"
 
     def add_custom_task(self, task: Task):
-        """Adds task to Google Tasks list 'Monga Cal'."""
         self.invalidate_cache()
         if self._connected and self.tasks_service:
             list_id = self.get_or_create_monga_list_id()
@@ -144,7 +138,6 @@ class GServicesClient:
         self._custom_tasks.append(task)
 
     def fetch_tasks(self) -> List[Task]:
-        """Fetch pending tasks exclusively from the dedicated 'Monga Cal' Google Tasks list (with 60s TTL Cache)."""
         now_time = time.time()
         if self._tasks_cache is not None and (now_time - self._tasks_cache_time) < CACHE_TTL_SECONDS:
             logger.info(f"Returning cached Google Tasks ({len(self._tasks_cache)} tasks, age: {int(now_time - self._tasks_cache_time)}s)")
@@ -195,7 +188,6 @@ class GServicesClient:
         return tasks
 
     def fetch_fixed_events(self, start_dt: datetime, end_dt: datetime) -> List[CalendarSlot]:
-        """Fetch fixed meetings from Primary Google Calendar (with 60s TTL Cache)."""
         now_time = time.time()
         cache_key = f"{start_dt.isoformat()}_{end_dt.isoformat()}"
         if self._events_cache is not None and self._events_cache_key == cache_key and (now_time - self._events_cache_time) < CACHE_TTL_SECONDS:
@@ -255,16 +247,11 @@ class GServicesClient:
     def sync_scheduled_blocks(
         self, blocks: List[ScheduledBlock], start_dt: datetime, end_dt: datetime
     ) -> bool:
-        """
-        Pushes Manager-assigned task blocks to Primary Google Calendar with thorough deduplication
-        and accurate local timezone offsets.
-        """
         if not self._connected or not self.calendar_service:
             logger.info(f"Mock mode: Syncing {len(blocks)} Manager blocks to Google Calendar.")
             return True
 
         try:
-            # 1. Fetch ALL calendar events in range (without relying on async Google search query 'q')
             t_min_dt = datetime.combine(start_dt.date() - timedelta(days=1), datetime.min.time()).replace(tzinfo=DEFAULT_TIMEZONE)
             t_max_dt = datetime.combine(end_dt.date() + timedelta(days=2), datetime.max.time()).replace(tzinfo=DEFAULT_TIMEZONE)
 
@@ -275,7 +262,6 @@ class GServicesClient:
                 singleEvents=True
             ).execute()
 
-            # 2. Find and delete ALL old BLOCK: events (rigorous deduplication)
             existing_items = events_result.get("items", [])
             deleted_count = 0
             for ev in existing_items:
@@ -294,12 +280,10 @@ class GServicesClient:
             if deleted_count > 0:
                 logger.info(f"Deduplicated & purged {deleted_count} old schedule blocks from Google Calendar.")
 
-            # 3. Insert new blocks with explicit America/Los_Angeles timezone offset
             for b in blocks:
                 summary = f"{MONGA_BLOCK_PREFIX} {b.task_title} (est {b.estimated_minutes}m) [P{b.priority_score}]"
                 desc_text = f"📋 Manager Directive: {b.manager_directive or 'Focus block'}\n⚡ Energy: {b.energy} | Priority: P{b.priority_score}\nX-MONGA-TASK-UID:{b.task_id}"
 
-                # Explicitly attach DEFAULT_TIMEZONE without altering local hours
                 if b.start.tzinfo is None:
                     start_dt_local = b.start.replace(tzinfo=DEFAULT_TIMEZONE)
                     end_dt_local = b.end.replace(tzinfo=DEFAULT_TIMEZONE)
@@ -337,7 +321,6 @@ class GServicesClient:
             return False
 
     def mark_task_complete(self, task_id: str) -> bool:
-        """Mark task as complete in Google Tasks."""
         self.invalidate_cache()
         if not self._connected or not self.tasks_service:
             return True

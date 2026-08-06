@@ -8,9 +8,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from daemon import daemon_service
-from models import TaskCompletionRecord, SchedulePlan, Task, ScheduleSettingsRequest
-from config import config, save_config
+from monga_cal.daemon import daemon_service
+from monga_cal.models import TaskCompletionRecord, SchedulePlan, Task, ScheduleSettingsRequest
+from monga_cal.config import config, save_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -188,7 +188,6 @@ async def complete_task(req: TaskCompletionRequest, background_tasks: Background
     background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": "Task completion recorded & reschedule triggered", "record": record.model_dump(mode="json")}
 
-# Serve Fridge UI static files
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
@@ -196,4 +195,4 @@ if __name__ == "__main__":
     import os
     port = int(os.getenv("PORT", "8000"))
     host = os.getenv("HOST", "0.0.0.0")
-    uvicorn.run("main:app", host=host, port=port, reload=True)
+    uvicorn.run("monga_cal.main:app", host=host, port=port, reload=True)

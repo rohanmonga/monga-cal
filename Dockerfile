@@ -22,5 +22,6 @@ EXPOSE 8000
 
 ENV PORT=8000
 ENV HOST=0.0.0.0
+ENV PYTHONPATH=/app
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "monga_cal.main"]

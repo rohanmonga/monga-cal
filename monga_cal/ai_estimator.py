@@ -6,15 +6,14 @@ import time
 from typing import Optional, List, Dict, Any
 from google import genai
 from google.genai import types
-from models import Task, EstimationResult
-from db import Database
-from config import config
+from monga_cal.models import Task, EstimationResult
+from monga_cal.db import Database
+from monga_cal.config import config
 
 logger = logging.getLogger(__name__)
 
-# Global rate limit backoff tracker
 _last_gemini_rate_limit_time = 0.0
-GEMINI_BACKOFF_SECONDS = 300  # If rate-limited (429), pause Gemini API calls for 5 minutes
+GEMINI_BACKOFF_SECONDS = 300
 
 class AIEstimator:
     def __init__(self, db: Optional[Database] = None):
@@ -33,16 +32,8 @@ class AIEstimator:
         return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
     def estimate_task(self, task: Task) -> Task:
-        """
-        Acts as your AI Executive Manager: assigns duration, priority score,
-        energy level, and a manager directive using Gemini API.
-        
-        GUARANTEE: Gemini is hit EXACTLY ONCE per task lifetime.
-        Estimates (including fallback estimates) are permanently cached in SQLite DB.
-        """
         global _last_gemini_rate_limit_time
         
-        # 1. Check SQLite DB cache first (by content hash)
         content_hash = self._get_content_hash(task)
         cached = self.db.get_cached_estimate(content_hash)
         
@@ -52,17 +43,14 @@ class AIEstimator:
             task.energy = cached.get("energy_level", "medium")
             task.manager_directive = cached.get("manager_directive", "Standard priority work block.")
             
-            # Apply user priority override if set
             override_prio = self.db.get_priority_override(task.id)
             if override_prio is not None:
                 task.priority_score = override_prio
             return task
 
-        # 2. Check if we are in Gemini rate limit backoff period
         now_time = time.time()
         in_backoff = (now_time - _last_gemini_rate_limit_time) < GEMINI_BACKOFF_SECONDS
 
-        # 3. Call Gemini API if available and not in backoff
         if self.client and not in_backoff:
             try:
                 history = self.db.get_recent_completion_history(config.ai.history_limit)
@@ -134,7 +122,6 @@ User Past Completion Velocity:
                 else:
                     logger.error(f"Gemini AI Manager error for '{task.title}': {e}")
 
-        # 4. Fallback heuristic (AND PERMANENTLY CACHE IT TO SQLITE SO WE NEVER RETRY GEMINI ON LOOP)
         logger.info(f"Applying & caching heuristic estimate for task '{task.title}'")
         self._apply_fallback(task)
         

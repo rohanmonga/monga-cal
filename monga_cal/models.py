@@ -65,7 +65,7 @@ class SyncStatus(BaseModel):
     last_error: Optional[str] = None
 
 class ScheduleSettingsRequest(BaseModel):
-    active_days: List[int] = Field(default=[0, 1, 2, 3, 4, 5, 6]) # 0=Mon, 6=Sun
+    active_days: List[int] = Field(default=[0, 1, 2, 3, 4, 5, 6])
     work_start_hour: int = 8
     work_end_hour: int = 21
     buffer_minutes: int = 10

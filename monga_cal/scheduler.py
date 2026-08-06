@@ -3,8 +3,8 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import List, Tuple, Dict, Optional, Any
 from ortools.sat.python import cp_model
-from models import Task, CalendarSlot, ScheduledBlock, SchedulePlan
-from config import config
+from monga_cal.models import Task, CalendarSlot, ScheduledBlock, SchedulePlan
+from monga_cal.config import config
 
 logger = logging.getLogger(__name__)
 
@@ -32,15 +32,8 @@ class Scheduler:
         start_time: Optional[datetime] = None,
         days_ahead: int = 2,
     ) -> SchedulePlan:
-        """
-        Solves optimal task scheduling using Google OR-Tools CP-SAT constraint solver.
-        - Hard Constraints: fixed meetings can't move, work hours enforced, active days enforced, max tasks per day.
-        - Deferred Tasks: tasks snoozed until future date are excluded from today's schedule.
-        - Soft Objectives: priority weighted, urgency decay, morning high-energy match.
-        """
         t0 = time.time()
         
-        # Reload latest config values
         self.work_start_hour = config.scheduler.work_start_hour
         self.work_end_hour = config.scheduler.work_end_hour
         self.buffer_minutes = config.scheduler.buffer_minutes
@@ -75,14 +68,12 @@ class Scheduler:
 
         plan_end = now + timedelta(days=days_ahead)
 
-        # Normalize fixed_events datetimes to naive
         norm_events = []
         for ev in fixed_events:
             ev_start = ev.start.replace(tzinfo=None) if ev.start.tzinfo else ev.start
             ev_end = ev.end.replace(tzinfo=None) if ev.end.tzinfo else ev.end
             norm_events.append(CalendarSlot(start=ev_start, end=ev_end, is_fixed=ev.is_fixed, title=ev.title, event_uid=ev.event_uid))
 
-        # 1. Build list of available 15-min slots matching active_days & work_start/end_hour
         slots: List[datetime] = []
         curr = now
 
@@ -107,7 +98,6 @@ class Scheduler:
                 solver_stats={"engine": "OR-Tools CP-SAT", "status": "NO_SLOTS_AVAILABLE", "time_sec": time.time() - t0}
             )
 
-        # 2. Build CP-SAT Model
         model = cp_model.CpModel()
         num_slots = len(slots)
 
@@ -141,14 +131,11 @@ class Scheduler:
             }
             interval_vars.append(interval_var)
 
-        # HARD CONSTRAINT: No overlapping tasks
         model.AddNoOverlap(interval_vars)
 
-        # HARD CONSTRAINT: Max tasks per day limit
         if self.max_tasks_per_day > 0:
             model.Add(sum(info["is_scheduled"] for info in task_vars.values()) <= self.max_tasks_per_day)
 
-        # HARD CONSTRAINT: Due dates
         for t_id, info in task_vars.items():
             t_due = info["due_naive"]
             if t_due and t_due > now:
@@ -157,7 +144,6 @@ class Scheduler:
                     if slot_finish > t_due:
                         model.Add(info["start"] < idx).OnlyEnforceIf(info["is_scheduled"])
 
-        # SOFT OBJECTIVES: Priority × Urgency + Morning Energy Match
         objective_terms = []
 
         for t_id, info in task_vars.items():
@@ -190,7 +176,6 @@ class Scheduler:
 
         model.Maximize(sum(objective_terms))
 
-        # 4. Solve Model
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = 5.0
         status = solver.Solve(model)
