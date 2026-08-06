@@ -140,25 +140,24 @@ async def add_task(req: AddTaskRequest, background_tasks: BackgroundTasks):
     return {"message": "Task added successfully", "task": new_task.model_dump(mode="json")}
 
 @app.post("/api/tasks/{task_id}/priority")
-async def update_task_priority(task_id: str, req: PriorityOverrideRequest, background_tasks: BackgroundTasks):
+async def update_task_priority(task_id: str, req: PriorityOverrideRequest):
     prio = max(1, min(10, req.priority_score))
     daemon_service.db.save_priority_override(task_id, prio)
     logger.info(f"Updated task '{task_id}' priority to P{prio}")
     
     daemon_service.gservices.invalidate_cache()
-    background_tasks.add_task(daemon_service.run_sync_cycle, True)
-    return {"message": f"Task priority updated to P{prio}", "task_id": task_id, "priority_score": prio}
+    plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
+    return {"message": f"Task priority updated to P{prio}", "task_id": task_id, "priority_score": prio, "schedule": plan.model_dump(mode="json")}
 
 @app.post("/api/tasks/{task_id}/defer")
-async def defer_task(task_id: str, days: int = Query(default=1), background_tasks: BackgroundTasks = None):
+async def defer_task(task_id: str, days: int = Query(default=1)):
     until_date = (datetime.now() + timedelta(days=days)).date()
     daemon_service.db.defer_task(task_id, until_date)
     logger.info(f"Snoozed task '{task_id}' for {days} days (until {until_date})")
     
     daemon_service.gservices.invalidate_cache()
-    if background_tasks:
-        background_tasks.add_task(daemon_service.run_sync_cycle, True)
-    return {"message": f"Task snoozed for {days} days (until {until_date})", "task_id": task_id, "deferred_until": until_date.isoformat()}
+    plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
+    return {"message": f"Task snoozed for {days} days (until {until_date})", "task_id": task_id, "deferred_until": until_date.isoformat(), "schedule": plan.model_dump(mode="json")}
 
 @app.post("/api/reschedule")
 async def trigger_reschedule():
