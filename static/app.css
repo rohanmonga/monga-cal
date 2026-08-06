@@ -67,7 +67,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .brand-title {
@@ -129,31 +129,14 @@ body {
 
 /* Today's Flow Section */
 .flow-section {
-  margin-bottom: 32px;
-}
-
-.flow-title-header {
-  text-align: center;
-  margin-bottom: 16px;
-}
-
-.flow-title-header h2 {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-dark);
-}
-
-.flow-subtitle {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--text-muted);
-  margin-top: 2px;
+  margin-bottom: 28px;
 }
 
 .gantt-wrapper {
   background: transparent;
   position: relative;
-  min-height: 110px;
+  min-height: 100px;
+  padding-bottom: 24px;
 }
 
 .gantt-time-scale {
@@ -171,17 +154,17 @@ body {
 }
 
 .gantt-tracks-container {
-  min-height: 85px;
+  min-height: 60px;
   position: relative;
-  margin-bottom: 24px;
+  transition: height 0.2s ease;
 }
 
 /* Gantt Block Pastels */
 .gantt-block-card {
   position: absolute;
-  height: 52px;
+  height: 48px;
   border-radius: 12px;
-  padding: 8px 14px;
+  padding: 6px 12px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -190,6 +173,7 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
   transition: all 0.2s ease;
   cursor: pointer;
+  z-index: 2;
 }
 
 .gantt-block-card.pastel-blue {
@@ -208,13 +192,13 @@ body {
 }
 
 .gantt-block-card .block-time {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   opacity: 0.85;
 }
 
 .gantt-block-card .block-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -265,7 +249,7 @@ body {
   background: var(--card-white);
   border: 1px solid var(--border-light);
   border-radius: 16px;
-  padding: 12px 18px;
+  padding: 10px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -291,7 +275,7 @@ body {
 }
 
 .card-title-text {
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-dark);
   flex: 1;
@@ -301,18 +285,39 @@ body {
 .card-right-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.prio-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+/* Priority Dropdown Select Pill */
+.prio-select-dropdown {
+  background: #f4efe6;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-dark);
+  outline: none;
+  cursor: pointer;
 }
 
-.prio-dot.p1 { background: var(--prio-p1-dot); }
-.prio-dot.p5 { background: var(--prio-p5-dot); }
-.prio-dot.p10 { background: var(--prio-p10-dot); }
+.prio-select-dropdown.p1 {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+}
+
+.prio-select-dropdown.p5 {
+  background: rgba(249, 115, 22, 0.12);
+  border-color: rgba(249, 115, 22, 0.3);
+  color: #ea580c;
+}
+
+.prio-select-dropdown.p10 {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #059669;
+}
 
 .btn-complete-circle {
   width: 28px;
@@ -339,7 +344,7 @@ body {
   background: #f4efe6;
   border: 1px solid var(--border-light);
   color: var(--text-muted);
-  padding: 4px 10px;
+  padding: 4px 9px;
   border-radius: 8px;
   font-size: 11px;
   font-weight: 600;

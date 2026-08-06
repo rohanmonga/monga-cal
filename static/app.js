@@ -15,7 +15,6 @@ document.addEventListener('DOMContentLoaded', () => {
 function initClock() {
   const clockTime = document.getElementById('clockTime');
   const clockDate = document.getElementById('clockDate');
-  const flowDateSub = document.getElementById('flowDateSub');
 
   function updateClock() {
     const now = new Date();
@@ -40,9 +39,6 @@ function initClock() {
 
     if (clockDate) {
       clockDate.textContent = `${dateStr} • ${period}`;
-    }
-    if (flowDateSub) {
-      flowDateSub.textContent = dateStr;
     }
   }
 
@@ -117,18 +113,40 @@ async function fetchPlan() {
   }
 }
 
+// SMART DYNAMIC GANTT PACKING WITH PACKED TRACKS
 function renderGanttChart() {
   const ganttTracks = document.getElementById('ganttTracks');
   const ganttTimeScale = document.getElementById('ganttTimeScale');
   if (!ganttTracks || !ganttTimeScale) return;
 
-  const blocks = currentSchedule.blocks || [];
-  const startHour = currentConfig.work_start_hour || 8;
-  const endHour = currentConfig.work_end_hour || 21;
+  const allBlocks = currentSchedule.blocks || [];
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayBlocks = allBlocks.filter(b => b.start.startsWith(todayStr));
+
+  ganttTracks.innerHTML = '';
+  ganttTimeScale.innerHTML = '';
+
+  if (todayBlocks.length === 0) {
+    ganttTracks.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--text-muted); font-size: 13px;">No task blocks scheduled for today.</div>`;
+    ganttTracks.style.height = '60px';
+    return;
+  }
+
+  // 1. Calculate dynamic time range from actual scheduled blocks
+  let minStart = Math.min(...todayBlocks.map(b => new Date(b.start).getTime()));
+  let maxEnd = Math.max(...todayBlocks.map(b => new Date(b.end).getTime()));
+
+  const dtMin = new Date(minStart);
+  const dtMax = new Date(maxEnd);
+
+  let startHour = Math.max(0, dtMin.getHours() - 1);
+  let endHour = Math.min(24, dtMax.getHours() + 2);
+  if (endHour - startHour < 4) endHour = Math.min(24, startHour + 4);
+
   const totalMinutes = (endHour - startHour) * 60;
 
-  ganttTimeScale.innerHTML = '';
-  for (let h = startHour; h <= endHour; h += 2) {
+  // Render Time Scale Ticks
+  for (let h = startHour; h <= endHour; h += 1) {
     const timeLabel = document.createElement('span');
     const displayHour = h % 12 === 0 ? 12 : h % 12;
     const ampm = h >= 12 ? 'PM' : 'AM';
@@ -136,46 +154,68 @@ function renderGanttChart() {
     ganttTimeScale.appendChild(timeLabel);
   }
 
-  ganttTracks.innerHTML = '';
-  if (blocks.length === 0) {
-    ganttTracks.innerHTML = `<div style="text-align:center; padding: 24px; color: var(--text-muted); font-size: 13px;">No task blocks scheduled for today.</div>`;
-    return;
-  }
+  // 2. Algorithmically Pack Blocks Into Non-Overlapping Tracks
+  const tracks = [];
+  todayBlocks.forEach(b => {
+    const bStart = new Date(b.start).getTime();
+    const bEnd = new Date(b.end).getTime();
+
+    let placedTrack = -1;
+    for (let tIdx = 0; tIdx < tracks.length; tIdx++) {
+      const lastInTrack = tracks[tIdx][tracks[tIdx].length - 1];
+      if (new Date(lastInTrack.end).getTime() <= bStart) {
+        placedTrack = tIdx;
+        tracks[tIdx].push(b);
+        break;
+      }
+    }
+
+    if (placedTrack === -1) {
+      tracks.push([b]);
+    }
+  });
+
+  const trackHeight = 56;
+  ganttTracks.style.height = `${tracks.length * trackHeight + 10}px`;
 
   const pastels = ['pastel-blue', 'pastel-peach', 'pastel-sage'];
+  let colorIdx = 0;
 
-  blocks.forEach((b, idx) => {
-    const dtStart = new Date(b.start);
-    const dtEnd = new Date(b.end);
+  tracks.forEach((trackBlocks, tIdx) => {
+    trackBlocks.forEach(b => {
+      const dtStart = new Date(b.start);
+      const dtEnd = new Date(b.end);
 
-    const startMinutes = (dtStart.getHours() - startHour) * 60 + dtStart.getMinutes();
-    const durationMinutes = (dtEnd - dtStart) / (1000 * 60);
+      const startMinutes = (dtStart.getHours() - startHour) * 60 + dtStart.getMinutes();
+      const durationMinutes = (dtEnd - dtStart) / (1000 * 60);
 
-    const leftPercent = Math.max(0, Math.min(100, (startMinutes / totalMinutes) * 100));
-    const widthPercent = Math.max(8, Math.min(100 - leftPercent, (durationMinutes / totalMinutes) * 100));
+      const leftPercent = Math.max(0, Math.min(96, (startMinutes / totalMinutes) * 100));
+      const widthPercent = Math.max(12, Math.min(100 - leftPercent, (durationMinutes / totalMinutes) * 100));
 
-    const pastelClass = pastels[idx % pastels.length];
+      const pastelClass = pastels[colorIdx % pastels.length];
+      colorIdx++;
 
-    const card = document.createElement('div');
-    card.className = `gantt-block-card ${pastelClass}`;
-    card.style.left = `${leftPercent}%`;
-    card.style.width = `${widthPercent}%`;
-    card.style.top = '10px';
+      const card = document.createElement('div');
+      card.className = `gantt-block-card ${pastelClass}`;
+      card.style.left = `${leftPercent}%`;
+      card.style.width = `${widthPercent}%`;
+      card.style.top = `${tIdx * trackHeight}px`;
 
-    const formatTime = (d) => {
-      let h = d.getHours();
-      const m = String(d.getMinutes()).padStart(2, '0');
-      const ampm = h >= 12 ? 'PM' : 'AM';
-      h = h % 12 || 12;
-      return `${h}:${m} ${ampm}`;
-    };
+      const formatTime = (d) => {
+        let h = d.getHours();
+        const m = String(d.getMinutes()).padStart(2, '0');
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return `${h}:${m} ${ampm}`;
+      };
 
-    card.innerHTML = `
-      <div class="block-time">${formatTime(dtStart)}</div>
-      <div class="block-title">${escapeHtml(b.task_title)}</div>
-    `;
+      card.innerHTML = `
+        <div class="block-time">${formatTime(dtStart)}</div>
+        <div class="block-title">${escapeHtml(b.task_title)}</div>
+      `;
 
-    ganttTracks.appendChild(card);
+      ganttTracks.appendChild(card);
+    });
   });
 }
 
@@ -268,12 +308,40 @@ function createAgendaCard(task, block) {
     <div class="card-title-text">${escapeHtml(task.title)}</div>
     <div class="card-right-controls">
       <button class="btn-direct-snooze" onclick="deferTaskDirect('${task.id}', 1)" title="Snooze Tomorrow">🌙 Tomorrow</button>
-      <div class="prio-dot ${prioClass}" title="Priority P${task.priority_score}"></div>
+      <button class="btn-direct-snooze" onclick="deferTaskDirect('${task.id}', 7)" title="Snooze Next Week">📅 Next Week</button>
+      
+      <select class="prio-select-dropdown ${prioClass}" onchange="updateTaskPriority('${task.id}', this.value)">
+        <option value="1" ${task.priority_score === 1 ? 'selected' : ''}>P1 (Urgent)</option>
+        <option value="2" ${task.priority_score === 2 ? 'selected' : ''}>P2</option>
+        <option value="3" ${task.priority_score === 3 ? 'selected' : ''}>P3</option>
+        <option value="4" ${task.priority_score === 4 ? 'selected' : ''}>P4</option>
+        <option value="5" ${task.priority_score === 5 ? 'selected' : ''}>P5 (Normal)</option>
+        <option value="6" ${task.priority_score === 6 ? 'selected' : ''}>P6</option>
+        <option value="7" ${task.priority_score === 7 ? 'selected' : ''}>P7</option>
+        <option value="8" ${task.priority_score === 8 ? 'selected' : ''}>P8</option>
+        <option value="9" ${task.priority_score === 9 ? 'selected' : ''}>P9</option>
+        <option value="10" ${task.priority_score === 10 ? 'selected' : ''}>P10 (Low)</option>
+      </select>
+
       <button class="btn-complete-circle" onclick="openCompletionModal('${task.id}', '${escapeHtml(task.title)}', ${task.estimated_minutes || 30})" title="Complete Task">✓</button>
     </div>
   `;
 
   return card;
+}
+
+async function updateTaskPriority(taskId, prio) {
+  try {
+    const res = await fetch(`${API_BASE}/api/tasks/${taskId}/priority`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priority_score: parseInt(prio, 10) })
+    });
+    if (!res.ok) throw new Error('Failed to update priority');
+    fetchPlan();
+  } catch (err) {
+    console.error('Error updating priority:', err);
+  }
 }
 
 function openCompletionModal(taskId, title, estMin) {
