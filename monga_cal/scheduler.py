@@ -1,5 +1,6 @@
 import time
 import logging
+from collections import defaultdict
 from datetime import datetime, date, timedelta
 from typing import List, Tuple, Dict, Optional, Any
 from ortools.sat.python import cp_model
@@ -33,12 +34,6 @@ class Scheduler:
         days_ahead: int = 2,
     ) -> SchedulePlan:
         t0 = time.time()
-        
-        self.work_start_hour = config.scheduler.work_start_hour
-        self.work_end_hour = config.scheduler.work_end_hour
-        self.buffer_minutes = config.scheduler.buffer_minutes
-        self.active_days = config.scheduler.active_days
-        self.max_tasks_per_day = getattr(config.scheduler, "max_tasks_per_day", 5)
 
         now = start_time or datetime.now()
         if now.tzinfo is not None:
@@ -68,10 +63,12 @@ class Scheduler:
 
         plan_end = now + timedelta(days=days_ahead)
 
+        # Buffer-expanded fixed events
+        buf_delta = timedelta(minutes=self.buffer_minutes)
         norm_events = []
         for ev in fixed_events:
-            ev_start = ev.start.replace(tzinfo=None) if ev.start.tzinfo else ev.start
-            ev_end = ev.end.replace(tzinfo=None) if ev.end.tzinfo else ev.end
+            ev_start = (ev.start.replace(tzinfo=None) if ev.start.tzinfo else ev.start) - buf_delta
+            ev_end = (ev.end.replace(tzinfo=None) if ev.end.tzinfo else ev.end) + buf_delta
             norm_events.append(CalendarSlot(start=ev_start, end=ev_end, is_fixed=ev.is_fixed, title=ev.title, event_uid=ev.event_uid))
 
         slots: List[datetime] = []
@@ -131,19 +128,52 @@ class Scheduler:
             }
             interval_vars.append(interval_var)
 
+        # HARD CONSTRAINT: No overlapping tasks
         model.AddNoOverlap(interval_vars)
 
+        # BUG-2 FIX: HARD CONSTRAINT — max_tasks_per_day enforced per individual calendar day
         if self.max_tasks_per_day > 0:
-            model.Add(sum(info["is_scheduled"] for info in task_vars.values()) <= self.max_tasks_per_day)
+            slots_by_day = defaultdict(list)
+            for idx, slot_dt in enumerate(slots):
+                slots_by_day[slot_dt.date()].append(idx)
 
+            for day_date, day_slot_indices in slots_by_day.items():
+                min_idx = min(day_slot_indices)
+                max_idx = max(day_slot_indices)
+                
+                day_starts = []
+                for t_id, info in task_vars.items():
+                    is_on_day = model.NewBoolVar(f"on_day_{t_id}_{day_date}")
+                    
+                    # Create slot index indicator booleans for exact day matching
+                    slot_indicators = []
+                    for s_idx in day_slot_indices:
+                        is_at_s = model.NewBoolVar(f"start_at_{t_id}_{s_idx}")
+                        model.Add(info["start"] == s_idx).OnlyEnforceIf([info["is_scheduled"], is_at_s])
+                        model.Add(info["start"] != s_idx).OnlyEnforceIf(is_at_s.Not())
+                        slot_indicators.append(is_at_s)
+                    
+                    model.Add(sum(slot_indicators) == 1).OnlyEnforceIf(is_on_day)
+                    model.Add(sum(slot_indicators) == 0).OnlyEnforceIf(is_on_day.Not())
+                    day_starts.append(is_on_day)
+
+                model.Add(sum(day_starts) <= self.max_tasks_per_day)
+
+        # BUG-3 FIX: Precompute exact max start index for due dates
         for t_id, info in task_vars.items():
             t_due = info["due_naive"]
             if t_due and t_due > now:
+                max_start_idx = -1
                 for idx, slot_dt in enumerate(slots):
                     slot_finish = slot_dt + timedelta(minutes=info["num_req_slots"] * SLOT_MINUTES)
-                    if slot_finish > t_due:
-                        model.Add(info["start"] < idx).OnlyEnforceIf(info["is_scheduled"])
+                    if slot_finish <= t_due:
+                        max_start_idx = idx
+                if max_start_idx >= 0:
+                    model.Add(info["start"] <= max_start_idx).OnlyEnforceIf(info["is_scheduled"])
+                else:
+                    model.Add(info["is_scheduled"] == 0)
 
+        # SOFT OBJECTIVES
         objective_terms = []
 
         for t_id, info in task_vars.items():
@@ -156,31 +186,17 @@ class Scheduler:
             if t_due:
                 delta = (t_due - now).total_seconds() / 3600.0
                 hours_until_due = max(0.1, delta)
-            
-            if t_due and t_due <= now:
-                urgency = 10.0
-            else:
-                urgency = 10.0 / (hours_until_due + 1.0)
 
-            # Invert priority convention: P1 = HIGHEST PRIORITY (10 pts), P10 = LOWEST PRIORITY (1 pt)
+            urgency = 10.0 if (t_due and t_due <= now) else 10.0 / (hours_until_due + 1.0)
             eff_prio = max(1, min(10, 11 - t.priority_score))
 
             base_score = int(eff_prio * 1000 * urgency)
             objective_terms.append(base_score * is_sched)
 
-            # Sequence priority: P1 (eff_prio=10) scheduled earlier in the day
             earlier_score = model.NewIntVar(-100000, 100000, f"earlier_{t_id}")
             model.Add(earlier_score == (num_slots - start_var) * eff_prio * 20).OnlyEnforceIf(is_sched)
             model.Add(earlier_score == 0).OnlyEnforceIf(is_sched.Not())
             objective_terms.append(earlier_score)
-
-            if t.energy == "high":
-                for idx, slot_dt in enumerate(slots):
-                    if config.scheduler.high_energy_start_hour <= slot_dt.hour < config.scheduler.high_energy_end_hour:
-                        is_at_idx = model.NewBoolVar(f"at_{t_id}_{idx}")
-                        model.Add(start_var == idx).OnlyEnforceIf([is_sched, is_at_idx])
-                        model.Add(start_var != idx).OnlyEnforceIf(is_at_idx.Not())
-                        objective_terms.append(200 * is_at_idx)
 
         model.Maximize(sum(objective_terms))
 
@@ -216,7 +232,7 @@ class Scheduler:
                 else:
                     unscheduled_ids.append(t_id)
         else:
-            logger.warning("CP-SAT solver could not find feasible schedule.")
+            logger.warning(f"CP-SAT solver status: {status_name}.")
             unscheduled_ids.extend([t.id for t in active_tasks])
 
         blocks.sort(key=lambda x: x.start)

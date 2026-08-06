@@ -1,9 +1,12 @@
 import sqlite3
 import hashlib
 import json
+import logging
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any
 from monga_cal.models import TaskCompletionRecord, ScheduledBlock
+
+logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self, db_path: str = "monga_cal.db"):
@@ -11,7 +14,7 @@ class Database:
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -28,6 +31,7 @@ class Database:
                     completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC)")
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS estimate_cache (
@@ -35,10 +39,17 @@ class Database:
                     estimated_minutes INTEGER,
                     priority_score INTEGER,
                     energy_level TEXT,
+                    manager_directive TEXT,
                     reasoning TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Ensure manager_directive column exists in existing DBs
+            try:
+                cursor.execute("ALTER TABLE estimate_cache ADD COLUMN manager_directive TEXT")
+            except Exception:
+                pass
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS plan_history (
@@ -97,8 +108,8 @@ class Database:
             if row:
                 try:
                     return json.loads(row["value_json"])
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"Error parsing setting JSON for key '{key}': {e}")
             return None
 
     def save_priority_override(self, task_id: str, priority_score: int):
@@ -136,6 +147,7 @@ class Database:
             conn.commit()
 
     def get_deferred_until(self, task_id: str) -> Optional[date]:
+        """Returns deferred_until date if valid; automatically purges expired deferrals."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -145,7 +157,12 @@ class Database:
             row = cursor.fetchone()
             if row and row["deferred_until"]:
                 try:
-                    return date.fromisoformat(row["deferred_until"])
+                    def_date = date.fromisoformat(row["deferred_until"])
+                    if def_date < date.today():
+                        cursor.execute("DELETE FROM task_deferrals WHERE task_id = ?", (task_id,))
+                        conn.commit()
+                        return None
+                    return def_date
                 except Exception:
                     pass
             return None
@@ -195,7 +212,7 @@ class Database:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT estimated_minutes, priority_score, energy_level, reasoning
+                SELECT estimated_minutes, priority_score, energy_level, manager_directive, reasoning
                 FROM estimate_cache
                 WHERE content_hash = ?
                 """,
@@ -207,6 +224,7 @@ class Database:
                     "estimated_minutes": row["estimated_minutes"],
                     "priority_score": row["priority_score"],
                     "energy_level": row["energy_level"],
+                    "manager_directive": row["manager_directive"],
                     "reasoning": row["reasoning"],
                 }
             return None
@@ -217,18 +235,33 @@ class Database:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO estimate_cache
-                (content_hash, estimated_minutes, priority_score, energy_level, reasoning)
-                VALUES (?, ?, ?, ?, ?)
+                (content_hash, estimated_minutes, priority_score, energy_level, manager_directive, reasoning)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     content_hash,
                     estimate["estimated_minutes"],
                     estimate["priority_score"],
                     estimate["energy_level"],
+                    estimate.get("manager_directive", "Standard priority work block."),
                     estimate.get("reasoning", ""),
                 ),
             )
             conn.commit()
+
+    def get_latest_plan(self) -> Optional[List[Dict[str, Any]]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT plan_json FROM plan_history ORDER BY id DESC LIMIT 1"
+            )
+            row = cursor.fetchone()
+            if row and row["plan_json"]:
+                try:
+                    return json.loads(row["plan_json"])
+                except Exception:
+                    pass
+            return None
 
     def get_latest_plan_hash(self) -> Optional[str]:
         with self._get_connection() as conn:
