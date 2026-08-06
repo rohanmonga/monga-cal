@@ -88,7 +88,7 @@ async def update_config(req: ScheduleSettingsRequest, background_tasks: Backgrou
     logger.info("Updated schedule settings & saved config.yaml")
     
     daemon_service.gservices.invalidate_cache()
-    background_tasks.add_task(daemon_service.run_sync_cycle)
+    background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": "Schedule configuration updated successfully", "config": get_config()}
 
 @app.get("/api/plan")
@@ -124,7 +124,7 @@ async def add_task(req: AddTaskRequest, background_tasks: BackgroundTasks):
     )
     daemon_service.gservices.add_custom_task(new_task)
     logger.info(f"Added task: '{req.title}'")
-    background_tasks.add_task(daemon_service.run_sync_cycle)
+    background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": "Task added successfully", "task": new_task.model_dump(mode="json")}
 
 @app.post("/api/tasks/{task_id}/priority")
@@ -134,7 +134,7 @@ async def update_task_priority(task_id: str, req: PriorityOverrideRequest, backg
     logger.info(f"Updated task '{task_id}' priority to P{prio}")
     
     daemon_service.gservices.invalidate_cache()
-    background_tasks.add_task(daemon_service.run_sync_cycle)
+    background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": f"Task priority updated to P{prio}", "task_id": task_id, "priority_score": prio}
 
 @app.post("/api/tasks/{task_id}/defer")
@@ -145,14 +145,14 @@ async def defer_task(task_id: str, days: int = Query(default=1), background_task
     
     daemon_service.gservices.invalidate_cache()
     if background_tasks:
-        background_tasks.add_task(daemon_service.run_sync_cycle)
+        background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": f"Task snoozed for {days} days (until {until_date})", "task_id": task_id, "deferred_until": until_date.isoformat()}
 
 @app.post("/api/reschedule")
 async def trigger_reschedule():
     logger.info("Manual reschedule requested via API.")
     daemon_service.gservices.invalidate_cache()
-    plan = await daemon_service.run_sync_cycle()
+    plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {
         "message": "Reschedule cycle completed successfully",
         "schedule": plan.model_dump(mode="json"),
@@ -174,7 +174,7 @@ async def complete_task(req: TaskCompletionRequest, background_tasks: Background
         t for t in daemon_service.gservices._custom_tasks if t.id != req.task_id
     ]
     
-    background_tasks.add_task(daemon_service.run_sync_cycle)
+    background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": "Task completion recorded & reschedule triggered", "record": record.model_dump(mode="json")}
 
 # Serve Fridge UI static files

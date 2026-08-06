@@ -205,8 +205,13 @@ class GServicesClient:
 
         slots: List[CalendarSlot] = []
         try:
-            time_min = start_dt.isoformat() + "Z"
-            time_max = end_dt.isoformat() + "Z"
+            # Ensure ISO 8601 formatted with local timezone or Z
+            if start_dt.tzinfo is None:
+                time_min = start_dt.astimezone().isoformat()
+                time_max = end_dt.astimezone().isoformat()
+            else:
+                time_min = start_dt.isoformat()
+                time_max = end_dt.isoformat()
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
@@ -253,14 +258,18 @@ class GServicesClient:
     def sync_scheduled_blocks(
         self, blocks: List[ScheduledBlock], start_dt: datetime, end_dt: datetime
     ) -> bool:
-        """Pushes Manager-assigned task blocks to Primary Google Calendar."""
+        """Pushes Manager-assigned task blocks to Primary Google Calendar with proper local timezone formatting."""
         if not self._connected or not self.calendar_service:
             logger.info(f"Mock mode: Syncing {len(blocks)} Manager blocks to Google Calendar.")
             return True
 
         try:
-            time_min = start_dt.isoformat() + "Z"
-            time_max = end_dt.isoformat() + "Z"
+            if start_dt.tzinfo is None:
+                time_min = start_dt.astimezone().isoformat()
+                time_max = end_dt.astimezone().isoformat()
+            else:
+                time_min = start_dt.isoformat()
+                time_max = end_dt.isoformat()
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
@@ -282,11 +291,15 @@ class GServicesClient:
                 summary = f"{MONGA_BLOCK_PREFIX} {b.task_title} (est {b.estimated_minutes}m) [P{b.priority_score}]"
                 desc_text = f"📋 Manager Directive: {b.manager_directive or 'Focus block'}\n⚡ Energy: {b.energy} | Priority: P{b.priority_score}\nX-MONGA-TASK-UID:{b.task_id}"
 
+                # Format naive datetimes with local system timezone
+                start_iso = b.start.astimezone().isoformat() if b.start.tzinfo is None else b.start.isoformat()
+                end_iso = b.end.astimezone().isoformat() if b.end.tzinfo is None else b.end.isoformat()
+
                 event_body = {
                     "summary": summary,
                     "description": desc_text,
-                    "start": {"dateTime": b.start.isoformat(), "timeZone": "UTC"},
-                    "end": {"dateTime": b.end.isoformat(), "timeZone": "UTC"},
+                    "start": {"dateTime": start_iso},
+                    "end": {"dateTime": end_iso},
                     "extendedProperties": {
                         "private": {
                             "monga_task_id": b.task_id,

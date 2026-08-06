@@ -33,7 +33,7 @@ class DaemonService:
         ]
         return hashlib.sha256(";".join(data).encode("utf-8")).hexdigest()
 
-    async def run_sync_cycle(self) -> SchedulePlan:
+    async def run_sync_cycle(self, force_calendar_sync: bool = False) -> SchedulePlan:
         """Runs a complete sync cycle: fetch Google Tasks -> Gemini AI Manager -> OR-Tools CP-SAT -> Google Calendar Sync."""
         self.status.status = "syncing"
         self.status.last_poll_time = datetime.now()
@@ -71,8 +71,8 @@ class DaemonService:
             new_hash = self.compute_plan_hash(plan.blocks)
             last_hash = self.db.get_latest_plan_hash()
 
-            if new_hash != last_hash:
-                logger.info("New schedule detected. Syncing blocks to Google Calendar...")
+            if force_calendar_sync or (new_hash != last_hash):
+                logger.info(f"Syncing {len(plan.blocks)} schedule blocks to Google Calendar (force={force_calendar_sync})...")
                 synced = self.gservices.sync_scheduled_blocks(plan.blocks, start_dt, end_dt)
                 if synced:
                     self.db.save_plan(new_hash, plan.blocks)
