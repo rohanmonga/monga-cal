@@ -36,7 +36,7 @@ class SchedulerConfig(BaseModel):
 
 class AIConfig(BaseModel):
     api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
-    model_name: str = "gemini-2.0-flash"
+    model_name: str = "gemini-3.5-flash-lite"
     default_duration_minutes: int = 30
     default_priority: int = 5
     history_limit: int = 20
@@ -44,7 +44,7 @@ class AIConfig(BaseModel):
 class DaemonConfig(BaseModel):
     poll_interval_seconds: int = 180
     db_path: str = Field(default_factory=lambda: os.getenv("DB_PATH", "monga_cal.db"))
-    database_url: str = Field(default_factory=lambda: os.getenv("DATABASE_URL", os.getenv("DB_PATH", "monga_cal.db")))
+    database_url: str = Field(default_factory=lambda: os.getenv("DATABASE_URL", ""))
 
 class AppConfig(BaseModel):
     google: GoogleConfig = Field(default_factory=GoogleConfig)
@@ -66,13 +66,19 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
     ai_data = config_data.get("ai", {})
     daemon_data = config_data.get("daemon", {})
 
+    # Always enforce loading DATABASE_URL from .env or environment
+    env_db_url = os.getenv("DATABASE_URL")
+    if env_db_url:
+        daemon_data["database_url"] = env_db_url
+
     try:
         from monga_cal.db import Database
-        db_conn_str = daemon_data.get("database_url") or daemon_data.get("db_path") or os.getenv("DATABASE_URL", "monga_cal.db")
-        db = Database(db_conn_str)
-        saved_settings = db.get_setting("scheduler_settings")
-        if saved_settings and isinstance(saved_settings, dict):
-            scheduler_data.update(saved_settings)
+        db_conn_str = daemon_data.get("database_url") or os.getenv("DATABASE_URL")
+        if db_conn_str:
+            db = Database(db_conn_str)
+            saved_settings = db.get_setting("scheduler_settings")
+            if saved_settings and isinstance(saved_settings, dict):
+                scheduler_data.update(saved_settings)
     except Exception as e:
         logger.warning(f"Could not load settings override from DB: {e}")
 
@@ -92,10 +98,14 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
 
 def save_config(app_config: AppConfig, config_file: str = "config.yaml"):
     config_dict = app_config.model_dump()
+    
+    # SECURITY: Strip sensitive credentials before persisting config.yaml
     if "ai" in config_dict:
         config_dict["ai"].pop("api_key", None)
     if "icloud" in config_dict:
         config_dict["icloud"].pop("password", None)
+    if "daemon" in config_dict:
+        config_dict["daemon"].pop("database_url", None)
         
     try:
         with open(config_file, "w", encoding="utf-8") as f:
