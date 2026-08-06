@@ -113,7 +113,7 @@ async function fetchPlan() {
   }
 }
 
-// SMART DYNAMIC GANTT PACKING WITH PACKED TRACKS & FULL TITLE WRAPPING
+// SMART NON-OVERLAPPING DYNAMIC GANTT TRACK PACKING
 function renderGanttChart() {
   const ganttTracks = document.getElementById('ganttTracks');
   const ganttTimeScale = document.getElementById('ganttTimeScale');
@@ -154,67 +154,70 @@ function renderGanttChart() {
     ganttTimeScale.appendChild(timeLabel);
   }
 
-  // 2. Algorithmically Pack Blocks Into Non-Overlapping Tracks
-  const tracks = [];
+  // 2. Pack blocks into non-overlapping tracks by tracking end percentages (including min-width & margin)
+  const trackEndPercents = [];
+
   todayBlocks.forEach(b => {
-    const bStart = new Date(b.start).getTime();
-    let placedTrack = -1;
-    for (let tIdx = 0; tIdx < tracks.length; tIdx++) {
-      const lastInTrack = tracks[tIdx][tracks[tIdx].length - 1];
-      if (new Date(lastInTrack.end).getTime() <= bStart) {
-        placedTrack = tIdx;
-        tracks[tIdx].push(b);
+    const dtStart = new Date(b.start);
+    const dtEnd = new Date(b.end);
+
+    const startMinutes = (dtStart.getHours() - startHour) * 60 + dtStart.getMinutes();
+    const durationMinutes = (dtEnd - dtStart) / (1000 * 60);
+
+    const leftPercent = Math.max(0, Math.min(94, (startMinutes / totalMinutes) * 100));
+    const rawWidthPercent = (durationMinutes / totalMinutes) * 100;
+    const widthPercent = Math.max(18, Math.min(100 - leftPercent, rawWidthPercent));
+    const endPercent = leftPercent + widthPercent + 2.0; // 2% spacing margin
+
+    let assignedTrack = -1;
+    for (let tIdx = 0; tIdx < trackEndPercents.length; tIdx++) {
+      if (trackEndPercents[tIdx] <= leftPercent) {
+        assignedTrack = tIdx;
+        trackEndPercents[tIdx] = endPercent;
         break;
       }
     }
 
-    if (placedTrack === -1) {
-      tracks.push([b]);
+    if (assignedTrack === -1) {
+      assignedTrack = trackEndPercents.length;
+      trackEndPercents.push(endPercent);
     }
+
+    b._trackIdx = assignedTrack;
+    b._leftPercent = leftPercent;
+    b._widthPercent = widthPercent;
   });
 
   const trackHeight = 60;
-  ganttTracks.style.height = `${tracks.length * trackHeight + 10}px`;
+  ganttTracks.style.height = `${trackEndPercents.length * trackHeight + 10}px`;
 
   const pastels = ['pastel-blue', 'pastel-peach', 'pastel-sage'];
-  let colorIdx = 0;
 
-  tracks.forEach((trackBlocks, tIdx) => {
-    trackBlocks.forEach(b => {
-      const dtStart = new Date(b.start);
-      const dtEnd = new Date(b.end);
+  todayBlocks.forEach((b, idx) => {
+    const dtStart = new Date(b.start);
+    const pastelClass = pastels[idx % pastels.length];
 
-      const startMinutes = (dtStart.getHours() - startHour) * 60 + dtStart.getMinutes();
-      const durationMinutes = (dtEnd - dtStart) / (1000 * 60);
+    const card = document.createElement('div');
+    card.className = `gantt-block-card ${pastelClass}`;
+    card.style.left = `${b._leftPercent}%`;
+    card.style.width = `${b._widthPercent}%`;
+    card.style.top = `${b._trackIdx * trackHeight}px`;
+    card.title = `${escapeHtml(b.task_title)} (${b.estimated_minutes}m)`;
 
-      const leftPercent = Math.max(0, Math.min(96, (startMinutes / totalMinutes) * 100));
-      const widthPercent = Math.max(16, Math.min(100 - leftPercent, (durationMinutes / totalMinutes) * 100));
+    const formatTime = (d) => {
+      let h = d.getHours();
+      const m = String(d.getMinutes()).padStart(2, '0');
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return `${h}:${m} ${ampm}`;
+    };
 
-      const pastelClass = pastels[colorIdx % pastels.length];
-      colorIdx++;
+    card.innerHTML = `
+      <div class="block-time">${formatTime(dtStart)}</div>
+      <div class="block-title">${escapeHtml(b.task_title)}</div>
+    `;
 
-      const card = document.createElement('div');
-      card.className = `gantt-block-card ${pastelClass}`;
-      card.style.left = `${leftPercent}%`;
-      card.style.width = `${widthPercent}%`;
-      card.style.top = `${tIdx * trackHeight}px`;
-      card.title = `${escapeHtml(b.task_title)} (${b.estimated_minutes}m)`;
-
-      const formatTime = (d) => {
-        let h = d.getHours();
-        const m = String(d.getMinutes()).padStart(2, '0');
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        h = h % 12 || 12;
-        return `${h}:${m} ${ampm}`;
-      };
-
-      card.innerHTML = `
-        <div class="block-time">${formatTime(dtStart)}</div>
-        <div class="block-title">${escapeHtml(b.task_title)}</div>
-      `;
-
-      ganttTracks.appendChild(card);
-    });
+    ganttTracks.appendChild(card);
   });
 }
 
@@ -295,7 +298,6 @@ function createAgendaCard(task, block) {
     };
     timeHtml = `<div class="card-left-time">${fmt(dtStart)}<br>${fmt(dtEnd)}</div>`;
   } else if (task.deferred_until) {
-    // Format raw ISO "2026-08-06" as friendly "Aug 6"
     let formattedDate = task.deferred_until;
     try {
       const parts = task.deferred_until.split('-');
