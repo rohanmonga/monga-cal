@@ -328,18 +328,17 @@ function renderWorkloadAgenda() {
   const blocks = currentSchedule.blocks || [];
   const unscheduledIds = currentSchedule.unscheduled_task_ids || [];
   const taskMap = new Map(currentTasks.map(t => [t.id, t]));
-  const blockMap = new Map(blocks.map(b => [b.task_id, b]));
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // 1. Strictly today's scheduled blocks (max_tasks_per_day constraint enforced!)
+  // 1. Today's scheduled blocks
   const todayBlocks = blocks.filter(b => b.start.startsWith(todayStr));
   const scheduledToday = todayBlocks.map(b => ({
     block: b,
     task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score, manager_directive: b.manager_directive, category: b.category }
   }));
 
-  // 2. Scheduled blocks for future days (Upcoming Scheduled Queue)
+  // 2. Scheduled blocks for future days
   const futureBlocks = blocks.filter(b => !b.start.startsWith(todayStr));
   const upcomingScheduled = futureBlocks.map(b => ({
     block: b,
@@ -410,19 +409,17 @@ function renderWorkloadAgenda() {
   }
 }
 
-function getCategoryBadgeHtml(catName) {
+function getCategoryIcon(catName) {
   catName = (catName || 'general').toLowerCase();
-  const badges = {
-    urgent: { icon: '🚨', label: 'Urgent' },
-    errands: { icon: '🚗', label: 'Errands' },
-    car: { icon: '🔧', label: 'Car' },
-    admin: { icon: '📋', label: 'Admin' },
-    tech: { icon: '💻', label: 'Tech' },
-    general: { icon: '📌', label: 'General' },
+  const icons = {
+    urgent: '🚨',
+    errands: '🚗',
+    car: '🔧',
+    admin: '📋',
+    tech: '💻',
+    general: '📌',
   };
-
-  const b = badges[catName] || badges.general;
-  return `<span class="category-pill-badge ${catName}">${b.icon} ${b.label}</span>`;
+  return icons[catName] || icons.general;
 }
 
 function createAgendaCard(task, block) {
@@ -464,14 +461,14 @@ function createAgendaCard(task, block) {
     ? `<div class="card-subtitle-directive">💡 ${escapeHtml(directiveText)}</div>`
     : '';
 
-  const catBadgeHtml = getCategoryBadgeHtml(catName);
+  const catIcon = getCategoryIcon(catName);
 
   card.innerHTML = `
     ${timeHtml}
     <div class="card-title-text">
       <div class="card-title-main">
-        ${escapeHtml(task.title)}
-        ${catBadgeHtml}
+        <span class="title-icon-prefix">${catIcon}</span>
+        <span>${escapeHtml(task.title)}</span>
       </div>
       ${directiveSubHtml}
     </div>
