@@ -4,6 +4,7 @@ import socket
 import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
+from zoneinfo import ZoneInfo
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -24,6 +25,7 @@ SCOPES = [
 
 MONGA_BLOCK_PREFIX = "BLOCK:"
 CACHE_TTL_SECONDS = 60  # Cache Google API calls for 60 seconds
+DEFAULT_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 class GServicesClient:
     def __init__(self, creds_file: str = "credentials.json", token_file: str = "token.json"):
@@ -205,14 +207,13 @@ class GServicesClient:
 
         slots: List[CalendarSlot] = []
         try:
-            # Generate ISO range
-            t_min = datetime.combine(start_dt.date(), datetime.min.time()).astimezone().isoformat()
-            t_max = datetime.combine(end_dt.date(), datetime.max.time()).astimezone().isoformat()
+            t_min_dt = datetime.combine(start_dt.date(), datetime.min.time()).replace(tzinfo=DEFAULT_TIMEZONE)
+            t_max_dt = datetime.combine(end_dt.date(), datetime.max.time()).replace(tzinfo=DEFAULT_TIMEZONE)
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
-                timeMin=t_min,
-                timeMax=t_max,
+                timeMin=t_min_dt.isoformat(),
+                timeMax=t_max_dt.isoformat(),
                 singleEvents=True,
                 orderBy="startTime"
             ).execute()
@@ -264,13 +265,13 @@ class GServicesClient:
 
         try:
             # 1. Fetch ALL calendar events in range (without relying on async Google search query 'q')
-            t_min = datetime.combine(start_dt.date() - timedelta(days=1), datetime.min.time()).astimezone().isoformat()
-            t_max = datetime.combine(end_dt.date() + timedelta(days=2), datetime.max.time()).astimezone().isoformat()
+            t_min_dt = datetime.combine(start_dt.date() - timedelta(days=1), datetime.min.time()).replace(tzinfo=DEFAULT_TIMEZONE)
+            t_max_dt = datetime.combine(end_dt.date() + timedelta(days=2), datetime.max.time()).replace(tzinfo=DEFAULT_TIMEZONE)
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
-                timeMin=t_min,
-                timeMax=t_max,
+                timeMin=t_min_dt.isoformat(),
+                timeMax=t_max_dt.isoformat(),
                 singleEvents=True
             ).execute()
 
@@ -293,18 +294,15 @@ class GServicesClient:
             if deleted_count > 0:
                 logger.info(f"Deduplicated & purged {deleted_count} old schedule blocks from Google Calendar.")
 
-            # 3. Get local timezone string (e.g. America/Los_Angeles or local tz)
-            local_tz_str = datetime.now().astimezone().tzinfo.tzname(None) or "America/Los_Angeles"
-
-            # 4. Insert new blocks with exact local ISO formatting
+            # 3. Insert new blocks with explicit America/Los_Angeles timezone offset
             for b in blocks:
                 summary = f"{MONGA_BLOCK_PREFIX} {b.task_title} (est {b.estimated_minutes}m) [P{b.priority_score}]"
                 desc_text = f"📋 Manager Directive: {b.manager_directive or 'Focus block'}\n⚡ Energy: {b.energy} | Priority: P{b.priority_score}\nX-MONGA-TASK-UID:{b.task_id}"
 
-                # Format start and end in local system timezone (e.g. 2026-08-06T08:00:00-07:00)
+                # Explicitly attach DEFAULT_TIMEZONE without altering local hours
                 if b.start.tzinfo is None:
-                    start_dt_local = b.start.astimezone()
-                    end_dt_local = b.end.astimezone()
+                    start_dt_local = b.start.replace(tzinfo=DEFAULT_TIMEZONE)
+                    end_dt_local = b.end.replace(tzinfo=DEFAULT_TIMEZONE)
                 else:
                     start_dt_local = b.start
                     end_dt_local = b.end
@@ -313,10 +311,12 @@ class GServicesClient:
                     "summary": summary,
                     "description": desc_text,
                     "start": {
-                        "dateTime": start_dt_local.isoformat()
+                        "dateTime": start_dt_local.isoformat(),
+                        "timeZone": "America/Los_Angeles"
                     },
                     "end": {
-                        "dateTime": end_dt_local.isoformat()
+                        "dateTime": end_dt_local.isoformat(),
+                        "timeZone": "America/Los_Angeles"
                     },
                     "extendedProperties": {
                         "private": {
@@ -330,7 +330,7 @@ class GServicesClient:
                     body=event_body
                 ).execute()
 
-            logger.info(f"Successfully synced {len(blocks)} Manager blocks to Primary Google Calendar in local timezone.")
+            logger.info(f"Successfully synced {len(blocks)} Manager blocks to Primary Google Calendar in America/Los_Angeles timezone.")
             return True
         except Exception as e:
             logger.error(f"Error syncing blocks to Google Calendar: {e}")
