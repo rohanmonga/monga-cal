@@ -162,9 +162,16 @@ class Scheduler:
             else:
                 urgency = 10.0 / (hours_until_due + 1.0)
                 
-            base_score = int(t.priority_score * 10 * urgency)
-
+            # Base inclusion score (Selection priority)
+            base_score = int(t.priority_score * 1000 * urgency)
             objective_terms.append(base_score * is_sched)
+
+            # Sequence priority: Higher priority tasks must be scheduled earlier in the day
+            # (num_slots - start_var) * priority_score * 20
+            earlier_score = model.NewIntVar(-100000, 100000, f"earlier_{t_id}")
+            model.Add(earlier_score == (num_slots - start_var) * t.priority_score * 20).OnlyEnforceIf(is_sched)
+            model.Add(earlier_score == 0).OnlyEnforceIf(is_sched.Not())
+            objective_terms.append(earlier_score)
 
             if t.energy == "high":
                 for idx, slot_dt in enumerate(slots):
@@ -172,7 +179,7 @@ class Scheduler:
                         is_at_idx = model.NewBoolVar(f"at_{t_id}_{idx}")
                         model.Add(start_var == idx).OnlyEnforceIf([is_sched, is_at_idx])
                         model.Add(start_var != idx).OnlyEnforceIf(is_at_idx.Not())
-                        objective_terms.append(50 * is_at_idx)
+                        objective_terms.append(200 * is_at_idx)
 
         model.Maximize(sum(objective_terms))
 
