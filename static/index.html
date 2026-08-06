@@ -3,46 +3,38 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monga Cal — Schedule</title>
+  <title>Monga Cal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <div class="app-container">
-    <!-- Compact Top Navbar -->
-    <header class="top-nav">
-      <div class="brand-group">
-        <div class="brand-icon">⚡</div>
-        <h1 class="app-title">Monga Cal</h1>
-      </div>
+  <div class="tablet-frame">
+    <!-- Top Warm Wood Grain Accent Bar -->
+    <div class="wood-trim"></div>
 
-      <div class="time-widget">
-        <span class="time-display" id="clockTime">--:--</span>
-        <span class="date-display" id="clockDate">--</span>
-      </div>
+    <div class="tablet-content">
+      <!-- Header Section -->
+      <header class="executive-header">
+        <div class="brand-title">Monga Cal</div>
 
-      <div class="action-buttons">
-        <button class="nav-btn btn-secondary" id="openSettingsBtn">⚙️ Settings</button>
-        <button class="nav-btn btn-secondary" id="openAddTaskBtn">➕ Add Task</button>
-        <button class="nav-btn btn-primary" id="rescheduleBtn">⚡ Re-Solve</button>
-      </div>
-    </header>
+        <div class="live-clock-widget">
+          <div class="clock-time" id="clockTime">10:27 <span class="clock-ampm">PM</span></div>
+          <div class="clock-date" id="clockDate">Tuesday, Sep 3 • Evening</div>
+        </div>
 
-    <!-- Main Workspace Content -->
-    <main class="dashboard-body">
+        <div class="header-right-actions">
+          <button class="icon-pill-btn" id="openSettingsBtn" title="Settings">⚙️</button>
+          <button class="icon-pill-btn" id="rescheduleBtn" title="Re-Solve">⚡</button>
+        </div>
+      </header>
 
-      <!-- COMPACT PACKED GANTT TIMELINE SECTION -->
-      <section class="gantt-section">
-        <div class="section-header">
-          <div class="section-title-group">
-            <h2>Gantt Timeline</h2>
-          </div>
-          <div class="view-toggle">
-            <button class="view-btn active" id="ganttViewBtn">📊 Gantt</button>
-            <button class="view-btn" id="listViewBtn">📋 List</button>
-          </div>
+      <!-- Today's Flow — Timeline Section -->
+      <section class="flow-section">
+        <div class="flow-title-header">
+          <h2>Today's Flow</h2>
+          <p class="flow-subtitle">Gantt • <span id="flowDateSub">Today</span></p>
         </div>
 
         <div class="gantt-wrapper">
@@ -55,15 +47,11 @@
         </div>
       </section>
 
-      <!-- COMPLETE WORKLOAD AGENDA SECTION (ALL TASKS) -->
+      <!-- Workload • Agenda Section -->
       <section class="agenda-section">
-        <div class="section-header">
-          <div class="section-title-group">
-            <h2>Workload Agenda</h2>
-          </div>
-          <div class="stats-counter" id="scheduleCountBadge">
-            <span class="dot-live"></span> 0 Total Tasks
-          </div>
+        <div class="agenda-title-header">
+          <h2>Workload • Agenda</h2>
+          <p class="agenda-subtitle" id="agendaTaskCount">0 tasks scheduled today</p>
         </div>
 
         <div class="agenda-cards-grid" id="agendaTimeline">
@@ -73,32 +61,23 @@
         </div>
       </section>
 
-    </main>
-
-    <!-- Compact Status Bar Footer -->
-    <footer class="solver-bar">
-      <div class="solver-bar-inner">
-        <span>Engine: <strong id="solverEngine">OR-Tools CP-SAT</strong></span>
-        <div class="divider"></div>
-        <span>Status: <strong class="badge-status-green" id="solverStatus">OPTIMAL</strong></span>
-        <div class="divider"></div>
-        <span>Solve: <strong id="solverTime">0.005s</strong></span>
-        <div class="divider"></div>
-        <span>Max Tasks/Day: <strong id="solverMaxTasks">5</strong></span>
-        <div class="divider"></div>
-        <span>Window: <strong id="solverHours">8:00 - 21:00</strong></span>
-      </div>
-    </footer>
+      <!-- Bottom Floating Action Bar -->
+      <footer class="bottom-action-bar">
+        <button class="floating-action-btn primary" id="openAddTaskBtn">
+          <span>+</span> Add Task
+        </button>
+        <button class="floating-action-btn secondary" id="reSolveBottomBtn">
+          ⚡ Re-Solve
+        </button>
+      </footer>
+    </div>
   </div>
 
   <!-- Settings Modal -->
   <div class="modal-overlay" id="settingsModal">
     <div class="modal-container modal-lg">
       <div class="modal-head">
-        <div class="head-icon">⚙️</div>
-        <div>
-          <h3>Schedule Settings</h3>
-        </div>
+        <h3>Schedule Settings</h3>
       </div>
 
       <div class="form-group">
@@ -147,10 +126,7 @@
   <div class="modal-overlay" id="addTaskModal">
     <div class="modal-container">
       <div class="modal-head">
-        <div class="head-icon">➕</div>
-        <div>
-          <h3>Add Task</h3>
-        </div>
+        <h3>Add Task</h3>
       </div>
 
       <div class="form-group">
@@ -174,10 +150,7 @@
   <div class="modal-overlay" id="completionModal">
     <div class="modal-container">
       <div class="modal-head">
-        <div class="head-icon">✅</div>
-        <div>
-          <h3>Log Task Duration</h3>
-        </div>
+        <h3>Log Task Duration</h3>
       </div>
 
       <div class="task-name-display" id="modalTaskTitle">Task Title</div>
