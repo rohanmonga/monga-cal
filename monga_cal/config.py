@@ -23,9 +23,9 @@ class ICloudConfig(BaseModel):
     reminders_list_name: str = "Reminders"
 
 class SchedulerConfig(BaseModel):
-    active_days: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
-    work_start_hour: int = 8
-    work_end_hour: int = 21
+    active_days: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+    work_start_hour: int = 10
+    work_end_hour: int = 17
     buffer_minutes: int = 10
     max_tasks_per_day: int = 5
     min_block_minutes: int = 15
@@ -76,6 +76,12 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
     except Exception as e:
         logger.warning(f"Could not load settings override from DB: {e}")
 
+    start_h = scheduler_data.get("work_start_hour", 10)
+    end_h = scheduler_data.get("work_end_hour", 17)
+    if end_h <= start_h and end_h <= 12:
+        end_h += 12
+    scheduler_data["work_end_hour"] = end_h
+
     return AppConfig(
         google=GoogleConfig(**google_data),
         icloud=ICloudConfig(**icloud_data),
@@ -86,7 +92,6 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
 
 def save_config(app_config: AppConfig, config_file: str = "config.yaml"):
     config_dict = app_config.model_dump()
-    # Exclude secrets from plaintext YAML export
     if "ai" in config_dict:
         config_dict["ai"].pop("api_key", None)
     if "icloud" in config_dict:

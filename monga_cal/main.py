@@ -80,9 +80,14 @@ def get_config():
 
 @app.post("/api/config")
 async def update_config(req: ScheduleSettingsRequest, background_tasks: BackgroundTasks):
+    start_h = req.work_start_hour
+    end_h = req.work_end_hour
+    if end_h <= start_h and end_h <= 12:
+        end_h += 12
+
     config.scheduler.active_days = req.active_days
-    config.scheduler.work_start_hour = req.work_start_hour
-    config.scheduler.work_end_hour = req.work_end_hour
+    config.scheduler.work_start_hour = start_h
+    config.scheduler.work_end_hour = end_h
     config.scheduler.buffer_minutes = req.buffer_minutes
     config.scheduler.max_tasks_per_day = req.max_tasks_per_day
     config.scheduler.high_energy_start_hour = req.high_energy_start_hour
@@ -90,8 +95,8 @@ async def update_config(req: ScheduleSettingsRequest, background_tasks: Backgrou
     
     settings_dict = {
         "active_days": req.active_days,
-        "work_start_hour": req.work_start_hour,
-        "work_end_hour": req.work_end_hour,
+        "work_start_hour": start_h,
+        "work_end_hour": end_h,
         "buffer_minutes": req.buffer_minutes,
         "max_tasks_per_day": req.max_tasks_per_day,
         "high_energy_start_hour": req.high_energy_start_hour,
@@ -99,6 +104,13 @@ async def update_config(req: ScheduleSettingsRequest, background_tasks: Backgrou
     }
     daemon_service.db.save_setting("scheduler_settings", settings_dict)
     save_config(config)
+    
+    daemon_service.scheduler.work_start_hour = start_h
+    daemon_service.scheduler.work_end_hour = end_h
+    daemon_service.scheduler.buffer_minutes = req.buffer_minutes
+    daemon_service.scheduler.max_tasks_per_day = req.max_tasks_per_day
+    daemon_service.scheduler.active_days = req.active_days
+
     logger.info("Updated schedule settings & saved to SQLite DB + config.yaml")
     
     daemon_service.gservices.invalidate_cache()
