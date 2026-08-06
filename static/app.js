@@ -4,13 +4,40 @@ let currentTasks = [];
 let currentSchedule = { blocks: [], unscheduled_task_ids: [], solver_stats: {} };
 let currentConfig = { active_days: [0, 1, 2, 3, 4], work_start_hour: 10, work_end_hour: 17, buffer_minutes: 10, max_tasks_per_day: 3 };
 let completingTaskId = null;
+let currentTab = 'schedule';
 
 document.addEventListener('DOMContentLoaded', () => {
   initClock();
   initEventListeners();
   fetchPlan();
-  setInterval(fetchPlan, 30000);
+  fetchHistory();
+  setInterval(() => {
+    if (currentTab === 'schedule') fetchPlan();
+    else if (currentTab === 'history') fetchHistory();
+  }, 30000);
 });
+
+function switchTab(tabName) {
+  currentTab = tabName;
+  const scheduleBtn = document.getElementById('tabScheduleBtn');
+  const historyBtn = document.getElementById('tabHistoryBtn');
+  const scheduleView = document.getElementById('tabScheduleView');
+  const historyView = document.getElementById('tabHistoryView');
+
+  if (tabName === 'schedule') {
+    scheduleBtn.classList.add('active');
+    historyBtn.classList.remove('active');
+    scheduleView.classList.add('active');
+    historyView.classList.remove('active');
+    fetchPlan();
+  } else if (tabName === 'history') {
+    historyBtn.classList.add('active');
+    scheduleBtn.classList.remove('active');
+    historyView.classList.add('active');
+    scheduleView.classList.remove('active');
+    fetchHistory();
+  }
+}
 
 function initClock() {
   const clockTime = document.getElementById('clockTime');
@@ -110,6 +137,86 @@ async function fetchPlan() {
     renderWorkloadAgenda();
   } catch (err) {
     console.error('Error fetching plan:', err);
+  }
+}
+
+async function fetchHistory() {
+  try {
+    const res = await fetch(`${API_BASE}/api/history`);
+    if (!res.ok) throw new Error('Failed to fetch history');
+    const data = await res.json();
+    renderHistoryView(data.history || [], data.summary || {});
+  } catch (err) {
+    console.error('Error fetching history:', err);
+  }
+}
+
+function renderHistoryView(historyItems, summary) {
+  const metricCompleted = document.getElementById('metricTotalCompleted');
+  const metricLogged = document.getElementById('metricTotalLogged');
+  const metricEstimated = document.getElementById('metricTotalEstimated');
+  const metricVariance = document.getElementById('metricVariance');
+  const historyCardsGrid = document.getElementById('historyCardsGrid');
+
+  if (metricCompleted) metricCompleted.textContent = summary.total_completed || 0;
+  if (metricLogged) metricLogged.textContent = `${summary.total_actual_hours || 0}h`;
+  if (metricEstimated) metricEstimated.textContent = `${summary.total_estimated_hours || 0}h`;
+  if (metricVariance) {
+    const varH = summary.variance_hours || 0;
+    metricVariance.textContent = varH >= 0 ? `+${varH}h` : `${varH}h`;
+    metricVariance.style.color = varH > 0 ? '#dc2626' : (varH < 0 ? '#10b981' : 'inherit');
+  }
+
+  if (!historyCardsGrid) return;
+  historyCardsGrid.innerHTML = '';
+
+  if (historyItems.length === 0) {
+    historyCardsGrid.innerHTML = `<div style="text-align:center; padding: 30px; color: var(--text-muted); font-size: 13.5px;">No completed task records logged yet.</div>`;
+    return;
+  }
+
+  historyItems.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'card-item';
+
+    const dtComp = item.completed_at ? new Date(item.completed_at) : new Date();
+    const dateFormatted = dtComp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    card.innerHTML = `
+      <div class="card-left-time" style="min-width: 80px;">✓<br>${dateFormatted.split(',')[0]}</div>
+      <div class="card-title-text">
+        ${escapeHtml(item.title)}
+        <div style="font-size: 11.5px; font-weight: 500; color: var(--text-muted); margin-top: 2px;">
+          Completed at ${dateFormatted} • Est: ${item.estimated_minutes}m
+        </div>
+      </div>
+      <div class="card-right-controls">
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Logged:</span>
+        <input type="number" class="log-hours-input" id="logInput_${item.id}" value="${item.actual_minutes}" min="0">
+        <span style="font-size: 11.5px; font-weight: 600; color: var(--text-muted);">m</span>
+        <button class="btn-save-log" onclick="updateLoggedTime(${item.id})">Save</button>
+      </div>
+    `;
+
+    historyCardsGrid.appendChild(card);
+  });
+}
+
+async function updateLoggedTime(recordId) {
+  const inputEl = document.getElementById(`logInput_${recordId}`);
+  if (!inputEl) return;
+  const actualMinutes = parseInt(inputEl.value, 10) || 0;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/history/${recordId}/log`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actual_minutes: actualMinutes })
+    });
+    if (!res.ok) throw new Error('Failed to update logged time');
+    fetchHistory();
+  } catch (err) {
+    console.error('Error updating logged time:', err);
   }
 }
 
@@ -293,10 +400,9 @@ function createAgendaCard(task, block) {
     timeHtml = `<div class="card-left-time">🌙<br>${task.deferred_until}</div>`;
   }
 
-  // Strictly clamp priority to 1-5 scale (1: ASAP, 2: High, 3: Regular, 4: Next Week, 5: Tracking)
   let rawPrio = task.priority_score || 3;
   if (rawPrio > 5) {
-    rawPrio = 3; // Normalize legacy 1-10 priorities to 3 (Regular)
+    rawPrio = 3;
   }
   rawPrio = Math.max(1, Math.min(5, rawPrio));
   let prioClass = `p${rawPrio}`;
@@ -362,6 +468,7 @@ async function submitCompletion() {
     if (!res.ok) throw new Error('Failed to complete task');
     document.getElementById('completionModal').classList.remove('active');
     fetchPlan();
+    fetchHistory();
   } catch (err) {
     console.error('Error completing task:', err);
   }

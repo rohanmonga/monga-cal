@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=3">
+  <link rel="stylesheet" href="app.css?v=4">
 </head>
 <body>
 
@@ -32,25 +32,73 @@
         </div>
       </header>
 
-      <!-- Smart Gantt Section (No Redundant Header) -->
-      <section class="flow-section">
-        <div class="gantt-wrapper">
-          <div class="gantt-time-scale" id="ganttTimeScale"></div>
-          <div class="gantt-tracks-container" id="ganttTracks"></div>
-        </div>
-      </section>
+      <!-- Navigation Tabs -->
+      <nav class="nav-tabs-bar">
+        <button class="nav-tab-btn active" id="tabScheduleBtn" onclick="switchTab('schedule')">
+          <span>📅</span> Schedule
+        </button>
+        <button class="nav-tab-btn" id="tabHistoryBtn" onclick="switchTab('history')">
+          <span>⏱️</span> Completed & Time Log
+        </button>
+      </nav>
 
-      <!-- Workload Agenda Section -->
-      <section class="agenda-section">
-        <div class="agenda-title-header">
-          <h2>Workload • Agenda</h2>
-          <p class="agenda-subtitle" id="agendaTaskCount">Loading tasks...</p>
-        </div>
+      <!-- TAB 1: SCHEDULE VIEW -->
+      <div id="tabScheduleView" class="tab-view active">
+        <!-- Smart Gantt Section -->
+        <section class="flow-section">
+          <div class="gantt-wrapper">
+            <div class="gantt-time-scale" id="ganttTimeScale"></div>
+            <div class="gantt-tracks-container" id="ganttTracks"></div>
+          </div>
+        </section>
 
-        <div class="agenda-cards-grid" id="agendaTimeline">
-          <!-- Dynamic Task Item Cards -->
-        </div>
-      </section>
+        <!-- Workload Agenda Section -->
+        <section class="agenda-section">
+          <div class="agenda-title-header">
+            <h2>Workload • Agenda</h2>
+            <p class="agenda-subtitle" id="agendaTaskCount">Loading tasks...</p>
+          </div>
+
+          <div class="agenda-cards-grid" id="agendaTimeline">
+            <!-- Dynamic Task Item Cards -->
+          </div>
+        </section>
+      </div>
+
+      <!-- TAB 2: COMPLETED & TIME LOG VIEW -->
+      <div id="tabHistoryView" class="tab-view">
+        <section class="history-section">
+          <!-- Summary Metrics Cards -->
+          <div class="metrics-summary-grid">
+            <div class="metric-card">
+              <div class="metric-label">Completed Tasks</div>
+              <div class="metric-value" id="metricTotalCompleted">0</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Total Hours Logged</div>
+              <div class="metric-value" id="metricTotalLogged">0h</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Estimated Hours</div>
+              <div class="metric-value" id="metricTotalEstimated">0h</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Variance</div>
+              <div class="metric-value" id="metricVariance">0h</div>
+            </div>
+          </div>
+
+          <div class="agenda-title-header" style="margin-top: 24px;">
+            <h2>Completed Tasks & Logged Hours</h2>
+            <p class="agenda-subtitle">Adjust time spent to log accurate hours for history</p>
+          </div>
+
+          <!-- Completed Tasks List -->
+          <div class="agenda-cards-grid" id="historyCardsGrid">
+            <!-- Completed Task Cards -->
+          </div>
+        </section>
+      </div>
 
       <!-- Floating Action Buttons -->
       <div class="bottom-action-bar">
@@ -155,6 +203,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

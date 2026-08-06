@@ -33,7 +33,6 @@ class Database:
 
     def _get_connection(self):
         if self.is_postgres:
-            # Strictly connect to PostgreSQL - raise Exception on connection failure (HARD CRASH)
             return psycopg2.connect(self.connection_string, cursor_factory=RealDictCursor)
         else:
             conn = sqlite3.connect(self.connection_string, check_same_thread=False)
@@ -51,7 +50,6 @@ class Database:
         cursor = conn.cursor()
 
         if self.is_postgres:
-            # Mandatory PostgreSQL Table Schema
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS task_history (
                     id SERIAL PRIMARY KEY,
@@ -241,22 +239,30 @@ class Database:
             commit=True,
         )
 
-    def get_recent_completion_history(self, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_recent_completion_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         sql = """
-            SELECT title, estimated_minutes, actual_minutes
+            SELECT id, task_id, title, estimated_minutes, actual_minutes, completed_at
             FROM task_history
             ORDER BY completed_at DESC
             LIMIT ?
         """
         rows = self._execute(sql, (limit,), fetchall=True)
-        return [
-            {
+        res = []
+        for row in rows:
+            dt_str = str(row["completed_at"])
+            res.append({
+                "id": row["id"],
+                "task_id": row["task_id"],
                 "title": row["title"],
                 "estimated_minutes": row["estimated_minutes"],
                 "actual_minutes": row["actual_minutes"],
-            }
-            for row in rows
-        ]
+                "completed_at": dt_str,
+            })
+        return res
+
+    def update_completion_actual_minutes(self, record_id: int, actual_minutes: int):
+        sql = "UPDATE task_history SET actual_minutes = ? WHERE id = ?"
+        self._execute(sql, (actual_minutes, record_id), commit=True)
 
     def get_cached_estimate(self, content_hash: str) -> Optional[Dict[str, Any]]:
         sql = """

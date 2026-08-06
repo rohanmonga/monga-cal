@@ -61,7 +61,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .brand-title {
@@ -119,6 +119,79 @@ body {
 .icon-pill-btn:hover {
   background: #f4efe6;
   transform: translateY(-1px);
+}
+
+/* Navigation Tabs Bar */
+.nav-tabs-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 12px;
+}
+
+.nav-tab-btn {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-muted);
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.nav-tab-btn:hover {
+  color: var(--text-dark);
+  background: rgba(0,0,0,0.03);
+}
+
+.nav-tab-btn.active {
+  background: var(--text-dark);
+  color: var(--card-white);
+}
+
+.tab-view {
+  display: none;
+}
+
+.tab-view.active {
+  display: block;
+}
+
+/* Metrics Summary Cards for Completed Log */
+.metrics-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.metric-card {
+  background: var(--card-white);
+  border: 1px solid var(--border-light);
+  border-radius: 16px;
+  padding: 16px 20px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.015);
+}
+
+.metric-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.metric-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-dark);
 }
 
 .flow-section {
@@ -277,7 +350,30 @@ body {
   gap: 8px;
 }
 
-/* Priority Select Dropdown (P1 ASAP -> P5 Tracking) */
+.log-hours-input {
+  width: 70px;
+  padding: 4px 8px;
+  background: #f4efe6;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dark);
+  text-align: center;
+  outline: none;
+}
+
+.btn-save-log {
+  background: var(--text-dark);
+  color: var(--card-white);
+  border: none;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .prio-select-dropdown {
   background: #f4efe6;
   border: 1px solid var(--border-light);

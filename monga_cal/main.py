@@ -62,6 +62,9 @@ class AddTaskRequest(BaseModel):
 class PriorityOverrideRequest(BaseModel):
     priority_score: int
 
+class UpdateLoggedHoursRequest(BaseModel):
+    actual_minutes: int
+
 @app.get("/api/status")
 def get_status():
     return daemon_service.status.model_dump(mode="json")
@@ -111,7 +114,7 @@ async def update_config(req: ScheduleSettingsRequest, background_tasks: Backgrou
     daemon_service.scheduler.max_tasks_per_day = req.max_tasks_per_day
     daemon_service.scheduler.active_days = req.active_days
 
-    logger.info("Updated schedule settings & saved to SQLite DB + config.yaml")
+    logger.info("Updated schedule settings & saved to DB + config.yaml")
     
     daemon_service.gservices.invalidate_cache()
     background_tasks.add_task(daemon_service.run_sync_cycle, True)
@@ -143,7 +146,6 @@ async def get_plan():
     tasks = []
     for t in raw_tasks:
         t.deferred_until = daemon_service.db.get_deferred_until(t.id)
-        # Apply SQLite DB priority overrides (strictly clamped 1-5)
         saved_prio = daemon_service.db.get_priority_override(t.id)
         if saved_prio:
             if saved_prio > 5:
@@ -173,6 +175,27 @@ async def get_plan():
         "schedule": plan.model_dump(mode="json"),
         "config": get_config(),
     }
+
+@app.get("/api/history")
+async def get_completion_history():
+    history = daemon_service.db.get_recent_completion_history(limit=100)
+    total_est = sum(h["estimated_minutes"] for h in history)
+    total_act = sum(h["actual_minutes"] for h in history)
+    return {
+        "history": history,
+        "summary": {
+            "total_completed": len(history),
+            "total_estimated_hours": round(total_est / 60.0, 2),
+            "total_actual_hours": round(total_act / 60.0, 2),
+            "variance_hours": round((total_act - total_est) / 60.0, 2),
+        }
+    }
+
+@app.post("/api/history/{record_id}/log")
+async def update_logged_hours(record_id: int, req: UpdateLoggedHoursRequest):
+    daemon_service.db.update_completion_actual_minutes(record_id, req.actual_minutes)
+    logger.info(f"Updated completed task #{record_id} logged time to {req.actual_minutes}m")
+    return {"message": f"Updated record #{record_id} logged time to {req.actual_minutes} minutes"}
 
 @app.post("/api/tasks")
 async def add_task(req: AddTaskRequest, background_tasks: BackgroundTasks):
