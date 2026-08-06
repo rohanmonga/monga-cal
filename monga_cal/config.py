@@ -44,6 +44,7 @@ class AIConfig(BaseModel):
 class DaemonConfig(BaseModel):
     poll_interval_seconds: int = 180
     db_path: str = Field(default_factory=lambda: os.getenv("DB_PATH", "monga_cal.db"))
+    database_url: str = Field(default_factory=lambda: os.getenv("DATABASE_URL", os.getenv("DB_PATH", "monga_cal.db")))
 
 class AppConfig(BaseModel):
     google: GoogleConfig = Field(default_factory=GoogleConfig)
@@ -67,12 +68,11 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
 
     try:
         from monga_cal.db import Database
-        db_path = daemon_data.get("db_path") or os.getenv("DB_PATH", "monga_cal.db")
-        if Path(db_path).exists():
-            db = Database(db_path)
-            saved_settings = db.get_setting("scheduler_settings")
-            if saved_settings and isinstance(saved_settings, dict):
-                scheduler_data.update(saved_settings)
+        db_conn_str = daemon_data.get("database_url") or daemon_data.get("db_path") or os.getenv("DATABASE_URL", "monga_cal.db")
+        db = Database(db_conn_str)
+        saved_settings = db.get_setting("scheduler_settings")
+        if saved_settings and isinstance(saved_settings, dict):
+            scheduler_data.update(saved_settings)
     except Exception as e:
         logger.warning(f"Could not load settings override from DB: {e}")
 
