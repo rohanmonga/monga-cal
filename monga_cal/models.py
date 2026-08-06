@@ -20,6 +20,7 @@ class Task(BaseModel):
     estimated_minutes: Optional[int] = 30
     priority_score: int = Field(default=3, description="1 (ASAP), 2 (High), 3 (Regular), 4 (Due Next Week), 5 (Tracking)")
     energy: str = "medium"
+    category: str = "general"
     manager_directive: str = "Standard priority focus block."
     flexible: bool = True
     created_at: Optional[datetime] = None
@@ -29,6 +30,7 @@ class EstimationResult(BaseModel):
     estimated_minutes: int = 30
     priority_score: int = 3
     energy: str = "medium"
+    category: str = "general"
     manager_directive: str = "Standard priority focus block."
     flexible: bool = True
 
@@ -40,6 +42,7 @@ class ScheduledBlock(BaseModel):
     estimated_minutes: int
     priority_score: int
     energy: str
+    category: str = "general"
     manager_directive: str
     event_uid: Optional[str] = None
 

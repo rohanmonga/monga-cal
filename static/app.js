@@ -328,12 +328,25 @@ function renderWorkloadAgenda() {
   const blocks = currentSchedule.blocks || [];
   const unscheduledIds = currentSchedule.unscheduled_task_ids || [];
   const taskMap = new Map(currentTasks.map(t => [t.id, t]));
+  const blockMap = new Map(blocks.map(b => [b.task_id, b]));
 
-  const scheduledToday = blocks.map(b => ({
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // 1. Strictly today's scheduled blocks (max_tasks_per_day constraint enforced!)
+  const todayBlocks = blocks.filter(b => b.start.startsWith(todayStr));
+  const scheduledToday = todayBlocks.map(b => ({
     block: b,
-    task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score, manager_directive: b.manager_directive }
+    task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score, manager_directive: b.manager_directive, category: b.category }
   }));
 
+  // 2. Scheduled blocks for future days (Upcoming Scheduled Queue)
+  const futureBlocks = blocks.filter(b => !b.start.startsWith(todayStr));
+  const upcomingScheduled = futureBlocks.map(b => ({
+    block: b,
+    task: taskMap.get(b.task_id) || { id: b.task_id, title: b.task_title, priority_score: b.priority_score, manager_directive: b.manager_directive, category: b.category }
+  }));
+
+  // 3. Unscheduled or snoozed tasks
   const queuedTasks = [];
   const snoozedTasks = [];
 
@@ -346,20 +359,35 @@ function renderWorkloadAgenda() {
   });
 
   if (agendaTaskCount) {
-    agendaTaskCount.textContent = `${scheduledToday.length} tasks scheduled today`;
+    agendaTaskCount.textContent = `${scheduledToday.length} tasks scheduled today (Max: ${currentConfig.max_tasks_per_day || 3})`;
   }
 
   agendaTimeline.innerHTML = '';
 
+  // Render Today's Scheduled Tasks
   scheduledToday.forEach(item => {
     const card = createAgendaCard(item.task, item.block);
     agendaTimeline.appendChild(card);
   });
 
+  // Render Upcoming Scheduled Queue
+  if (upcomingScheduled.length > 0) {
+    const catTitle = document.createElement('div');
+    catTitle.className = 'agenda-category-title';
+    catTitle.innerHTML = `<span>🗓️</span> Upcoming Scheduled Queue (${upcomingScheduled.length})`;
+    agendaTimeline.appendChild(catTitle);
+
+    upcomingScheduled.forEach(item => {
+      const card = createAgendaCard(item.task, item.block);
+      agendaTimeline.appendChild(card);
+    });
+  }
+
+  // Render Deferred Queued Tasks
   if (queuedTasks.length > 0) {
     const catTitle = document.createElement('div');
     catTitle.className = 'agenda-category-title';
-    catTitle.textContent = `Queued (${queuedTasks.length})`;
+    catTitle.innerHTML = `<span>⏳</span> Queued / Deferred (${queuedTasks.length})`;
     agendaTimeline.appendChild(catTitle);
 
     queuedTasks.forEach(t => {
@@ -368,10 +396,11 @@ function renderWorkloadAgenda() {
     });
   }
 
+  // Render Snoozed Tasks
   if (snoozedTasks.length > 0) {
     const catTitle = document.createElement('div');
     catTitle.className = 'agenda-category-title';
-    catTitle.textContent = `Snoozed (${snoozedTasks.length})`;
+    catTitle.innerHTML = `<span>🌙</span> Snoozed (${snoozedTasks.length})`;
     agendaTimeline.appendChild(catTitle);
 
     snoozedTasks.forEach(t => {
@@ -381,21 +410,44 @@ function renderWorkloadAgenda() {
   }
 }
 
+function getCategoryBadgeHtml(catName) {
+  catName = (catName || 'general').toLowerCase();
+  const badges = {
+    urgent: { icon: '🚨', label: 'Urgent' },
+    errands: { icon: '🚗', label: 'Errands' },
+    car: { icon: '🔧', label: 'Car' },
+    admin: { icon: '📋', label: 'Admin' },
+    tech: { icon: '💻', label: 'Tech' },
+    general: { icon: '📌', label: 'General' },
+  };
+
+  const b = badges[catName] || badges.general;
+  return `<span class="category-pill-badge ${catName}">${b.icon} ${b.label}</span>`;
+}
+
 function createAgendaCard(task, block) {
   const card = document.createElement('div');
-  card.className = 'card-item';
+  const catName = (task.category || (block ? block.category : 'general')).toLowerCase();
+  card.className = `card-item category-${catName}`;
 
   let timeHtml = `<div class="card-left-time">--:--<br>--:--</div>`;
   if (block) {
     const dtStart = new Date(block.start);
     const dtEnd = new Date(block.end);
-    const fmt = (d) => {
+    const dateFormatted = dtStart.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const fmtTime = (d) => {
       let h = d.getHours();
       const m = String(d.getMinutes()).padStart(2, '0');
       h = h % 12 || 12;
       return `${h}:${m}`;
     };
-    timeHtml = `<div class="card-left-time">${fmt(dtStart)}<br>${fmt(dtEnd)}</div>`;
+
+    const isToday = dtStart.toDateString() === new Date().toDateString();
+    if (isToday) {
+      timeHtml = `<div class="card-left-time">${fmtTime(dtStart)}<br>${fmtTime(dtEnd)}</div>`;
+    } else {
+      timeHtml = `<div class="card-left-time" style="font-size:10.5px;">${dateFormatted}<br>${fmtTime(dtStart)}-${fmtTime(dtEnd)}</div>`;
+    }
   } else if (task.deferred_until) {
     timeHtml = `<div class="card-left-time">🌙<br>${task.deferred_until}</div>`;
   }
@@ -412,10 +464,15 @@ function createAgendaCard(task, block) {
     ? `<div class="card-subtitle-directive">💡 ${escapeHtml(directiveText)}</div>`
     : '';
 
+  const catBadgeHtml = getCategoryBadgeHtml(catName);
+
   card.innerHTML = `
     ${timeHtml}
     <div class="card-title-text">
-      <div class="card-title-main">${escapeHtml(task.title)}</div>
+      <div class="card-title-main">
+        ${escapeHtml(task.title)}
+        ${catBadgeHtml}
+      </div>
       ${directiveSubHtml}
     </div>
     <div class="card-right-controls">

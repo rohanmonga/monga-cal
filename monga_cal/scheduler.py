@@ -31,7 +31,7 @@ class Scheduler:
         tasks: List[Task],
         fixed_events: List[CalendarSlot],
         start_time: Optional[datetime] = None,
-        days_ahead: int = 2,
+        days_ahead: int = 14,
         locked_blocks: Optional[List[Dict[str, Any]]] = None,
     ) -> SchedulePlan:
         t0 = time.time()
@@ -161,7 +161,7 @@ class Scheduler:
                 except Exception as ex:
                     logger.warning(f"Error locking block '{l_id}': {ex}")
 
-        # OPTIMIZED PER-DAY MAX TASKS CONSTRAINT (Zero per-slot Bools!)
+        # OPTIMIZED PER-DAY MAX TASKS CONSTRAINT (Strictly enforced max_tasks_per_day)
         if self.max_tasks_per_day > 0:
             slots_by_day = defaultdict(list)
             for idx, slot_dt in enumerate(slots):
@@ -274,6 +274,7 @@ class Scheduler:
                             estimated_minutes=t.estimated_minutes or 30,
                             priority_score=t.priority_score,
                             energy=t.energy,
+                            category=getattr(t, "category", "general"),
                             manager_directive=t.manager_directive,
                         )
                     )

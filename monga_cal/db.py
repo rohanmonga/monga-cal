@@ -4,6 +4,9 @@ import logging
 import sqlite3
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     import psycopg2
@@ -19,8 +22,11 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self, db_path_or_url: Optional[str] = None):
         if not db_path_or_url:
-            db_path_or_url = os.getenv("DATABASE_URL", os.getenv("DB_PATH", "monga_cal.db"))
+            db_path_or_url = os.getenv("DATABASE_URL")
             
+        if not db_path_or_url:
+            raise RuntimeError("DATABASE_URL environment variable is missing! Direct PostgreSQL connection to Pi is required.")
+
         self.connection_string = db_path_or_url
         self.is_postgres = self.connection_string.startswith(("postgresql://", "postgres://"))
         
@@ -66,6 +72,7 @@ class Database:
                     estimated_minutes INTEGER,
                     priority_score INTEGER,
                     energy_level TEXT,
+                    category TEXT DEFAULT 'general',
                     manager_directive TEXT,
                     reasoning TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -96,6 +103,7 @@ class Database:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'general';")
             conn.commit()
         else:
             cursor.execute("""
@@ -116,11 +124,16 @@ class Database:
                     estimated_minutes INTEGER,
                     priority_score INTEGER,
                     energy_level TEXT,
+                    category TEXT DEFAULT 'general',
                     manager_directive TEXT,
                     reasoning TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            try:
+                cursor.execute("ALTER TABLE estimate_cache ADD COLUMN category TEXT DEFAULT 'general'")
+            except Exception:
+                pass
 
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS plan_history (
@@ -175,7 +188,8 @@ class Database:
         row = self._execute(sql, (key,), fetchone=True)
         if row:
             try:
-                return json.loads(row["value_json"])
+                r_dict = dict(row)
+                return json.loads(r_dict["value_json"])
             except Exception as e:
                 logger.error(f"Error parsing setting JSON for key '{key}': {e}")
         return None
@@ -194,7 +208,9 @@ class Database:
     def get_priority_override(self, task_id: str) -> Optional[int]:
         sql = "SELECT priority_score FROM priority_overrides WHERE task_id = ?"
         row = self._execute(sql, (task_id,), fetchone=True)
-        return row["priority_score"] if row else None
+        if row:
+            return dict(row)["priority_score"]
+        return None
 
     def defer_task(self, task_id: str, until_date: date):
         sql = """
@@ -210,16 +226,18 @@ class Database:
     def get_deferred_until(self, task_id: str) -> Optional[date]:
         sql = "SELECT deferred_until FROM task_deferrals WHERE task_id = ?"
         row = self._execute(sql, (task_id,), fetchone=True)
-        if row and row["deferred_until"]:
-            try:
-                val = row["deferred_until"]
-                def_date = date.fromisoformat(str(val)) if isinstance(val, str) else val
-                if def_date < date.today():
-                    self._execute("DELETE FROM task_deferrals WHERE task_id = ?", (task_id,), commit=True)
-                    return None
-                return def_date
-            except Exception:
-                pass
+        if row:
+            r_dict = dict(row)
+            if r_dict.get("deferred_until"):
+                try:
+                    val = r_dict["deferred_until"]
+                    def_date = date.fromisoformat(str(val)) if isinstance(val, str) else val
+                    if def_date < date.today():
+                        self._execute("DELETE FROM task_deferrals WHERE task_id = ?", (task_id,), commit=True)
+                        return None
+                    return def_date
+                except Exception:
+                    pass
         return None
 
     def record_completion(self, record: TaskCompletionRecord):
@@ -254,13 +272,14 @@ class Database:
         rows = self._execute(sql, (limit,), fetchall=True)
         res = []
         for row in rows:
-            dt_str = str(row["completed_at"])
+            r_dict = dict(row)
+            dt_str = str(r_dict["completed_at"])
             res.append({
-                "id": row["id"],
-                "task_id": row["task_id"],
-                "title": row["title"],
-                "estimated_minutes": row["estimated_minutes"],
-                "actual_minutes": row["actual_minutes"],
+                "id": r_dict["id"],
+                "task_id": r_dict["task_id"],
+                "title": r_dict["title"],
+                "estimated_minutes": r_dict["estimated_minutes"],
+                "actual_minutes": r_dict["actual_minutes"],
                 "completed_at": dt_str,
             })
         return res
@@ -271,36 +290,39 @@ class Database:
 
     def get_cached_estimate(self, content_hash: str) -> Optional[Dict[str, Any]]:
         sql = """
-            SELECT estimated_minutes, priority_score, energy_level, manager_directive, reasoning
+            SELECT estimated_minutes, priority_score, energy_level, category, manager_directive, reasoning
             FROM estimate_cache
             WHERE content_hash = ?
         """
         row = self._execute(sql, (content_hash,), fetchone=True)
         if row:
+            r_dict = dict(row)
             return {
-                "estimated_minutes": row["estimated_minutes"],
-                "priority_score": row["priority_score"],
-                "energy_level": row["energy_level"],
-                "manager_directive": row["manager_directive"],
-                "reasoning": row["reasoning"],
+                "estimated_minutes": r_dict["estimated_minutes"],
+                "priority_score": r_dict["priority_score"],
+                "energy_level": r_dict["energy_level"],
+                "category": r_dict.get("category", "general") or "general",
+                "manager_directive": r_dict["manager_directive"],
+                "reasoning": r_dict.get("reasoning", ""),
             }
         return None
 
     def save_cached_estimate(self, content_hash: str, estimate: Dict[str, Any]):
         sql = """
             INSERT INTO estimate_cache
-            (content_hash, estimated_minutes, priority_score, energy_level, manager_directive, reasoning)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (content_hash, estimated_minutes, priority_score, energy_level, category, manager_directive, reasoning)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (content_hash) DO UPDATE SET
                 estimated_minutes = EXCLUDED.estimated_minutes,
                 priority_score = EXCLUDED.priority_score,
                 energy_level = EXCLUDED.energy_level,
+                category = EXCLUDED.category,
                 manager_directive = EXCLUDED.manager_directive,
                 reasoning = EXCLUDED.reasoning
         """ if self.is_postgres else """
             INSERT OR REPLACE INTO estimate_cache
-            (content_hash, estimated_minutes, priority_score, energy_level, manager_directive, reasoning)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (content_hash, estimated_minutes, priority_score, energy_level, category, manager_directive, reasoning)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """
         self._execute(
             sql,
@@ -309,6 +331,7 @@ class Database:
                 estimate["estimated_minutes"],
                 estimate["priority_score"],
                 estimate["energy_level"],
+                estimate.get("category", "general"),
                 estimate.get("manager_directive", "Standard priority work block."),
                 estimate.get("reasoning", ""),
             ),
@@ -318,17 +341,21 @@ class Database:
     def get_latest_plan(self) -> Optional[List[Dict[str, Any]]]:
         sql = "SELECT plan_json FROM plan_history ORDER BY id DESC LIMIT 1"
         row = self._execute(sql, fetchone=True)
-        if row and row["plan_json"]:
-            try:
-                return json.loads(row["plan_json"])
-            except Exception:
-                pass
+        if row:
+            r_dict = dict(row)
+            if r_dict.get("plan_json"):
+                try:
+                    return json.loads(r_dict["plan_json"])
+                except Exception:
+                    pass
         return None
 
     def get_latest_plan_hash(self) -> Optional[str]:
         sql = "SELECT plan_hash FROM plan_history ORDER BY id DESC LIMIT 1"
         row = self._execute(sql, fetchone=True)
-        return row["plan_hash"] if row else None
+        if row:
+            return dict(row)["plan_hash"]
+        return None
 
     def save_plan(self, plan_hash: str, blocks: List[ScheduledBlock]):
         plan_data = [b.model_dump(mode="json") for b in blocks]

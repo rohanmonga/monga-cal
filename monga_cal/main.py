@@ -44,6 +44,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -145,28 +146,29 @@ async def get_plan():
     tasks = []
     for t in raw_tasks:
         t.deferred_until = daemon_service.db.get_deferred_until(t.id)
-        saved_prio = daemon_service.db.get_priority_override(t.id)
-        if saved_prio:
-            if saved_prio > 5:
-                saved_prio = 3
-            t.priority_score = max(1, min(5, saved_prio))
-        else:
-            if t.priority_score > 5:
-                t.priority_score = 3
-            t.priority_score = max(1, min(5, t.priority_score))
         tasks.append(t)
 
     estimated_tasks = daemon_service.ai.estimate_tasks_batch(tasks)
+    
+    # Enforce that user explicit priority overrides take precedence over AI estimates
     for et in estimated_tasks:
-        if et.priority_score > 5:
-            et.priority_score = 3
-        et.priority_score = max(1, min(5, et.priority_score))
+        saved_prio = daemon_service.db.get_priority_override(et.id)
+        if saved_prio:
+            et.priority_score = max(1, min(5, saved_prio))
+        else:
+            if et.priority_score > 5:
+                et.priority_score = 3
+            et.priority_score = max(1, min(5, et.priority_score))
 
     plan = daemon_service.scheduler.solve(estimated_tasks, fixed_events, start_time=now)
     for b in plan.blocks:
-        if b.priority_score > 5:
-            b.priority_score = 3
-        b.priority_score = max(1, min(5, b.priority_score))
+        saved_prio = daemon_service.db.get_priority_override(b.task_id)
+        if saved_prio:
+            b.priority_score = max(1, min(5, saved_prio))
+        else:
+            if b.priority_score > 5:
+                b.priority_score = 3
+            b.priority_score = max(1, min(5, b.priority_score))
 
     return {
         "status": daemon_service.status.model_dump(mode="json"),

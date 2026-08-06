@@ -300,15 +300,19 @@ body {
   font-size: 12.5px;
   font-weight: 700;
   color: var(--text-muted);
-  margin-top: 16px;
-  margin-bottom: 4px;
+  margin-top: 20px;
+  margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .card-item {
   background: var(--card-white);
   border: 1px solid var(--border-light);
+  border-left: 5px solid #9ca3af;
   border-radius: 16px;
   padding: 12px 20px;
   display: flex;
@@ -324,6 +328,76 @@ body {
   transform: translateY(-1px);
 }
 
+/* SMART CATEGORY ACCENT BORDERS */
+.card-item.category-urgent {
+  border-left-color: #ef4444;
+}
+
+.card-item.category-errands {
+  border-left-color: #6366f1;
+}
+
+.card-item.category-car {
+  border-left-color: #f59e0b;
+}
+
+.card-item.category-admin {
+  border-left-color: #3b82f6;
+}
+
+.card-item.category-tech {
+  border-left-color: #10b981;
+}
+
+.card-item.category-general {
+  border-left-color: #9ca3af;
+}
+
+/* CATEGORY PILL BADGES */
+.category-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.category-pill-badge.urgent {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.category-pill-badge.errands {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+}
+
+.category-pill-badge.car {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+}
+
+.category-pill-badge.admin {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
+.category-pill-badge.tech {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.category-pill-badge.general {
+  background: rgba(156, 163, 175, 0.12);
+  color: #4b5563;
+}
+
 .card-left-time {
   background: #f4efe6;
   border-radius: 10px;
@@ -333,7 +407,7 @@ body {
   color: var(--text-muted);
   text-align: center;
   line-height: 1.2;
-  min-width: 68px;
+  min-width: 90px;
 }
 
 .card-title-text {
@@ -348,6 +422,8 @@ body {
   font-size: 14.5px;
   font-weight: 600;
   color: var(--text-dark);
+  display: flex;
+  align-items: center;
 }
 
 .card-subtitle-directive {

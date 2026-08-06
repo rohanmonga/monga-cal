@@ -60,10 +60,16 @@ class AIEstimator:
                 t.estimated_minutes = cached.get("estimated_minutes", 30)
                 t.priority_score = max(1, min(5, prio))
                 t.energy = cached.get("energy_level", "medium")
+                t.category = cached.get("category", "general")
                 t.manager_directive = cached.get("manager_directive", "Standard priority focus block.")
                 t.flexible = True
             else:
                 uncached_tasks.append(t)
+
+            # Explicit user priority overrides MUST take precedence over cached AI estimates
+            saved_prio = self.db.get_priority_override(t.id)
+            if saved_prio:
+                t.priority_score = max(1, min(5, saved_prio))
 
         # If all tasks are cached, return immediately with zero API calls!
         if not uncached_tasks:
@@ -74,10 +80,12 @@ class AIEstimator:
         if not self.client:
             for t in uncached_tasks:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
-                prio = t.priority_score or config.ai.default_priority
+                saved_prio = self.db.get_priority_override(t.id)
+                prio = saved_prio if saved_prio else (t.priority_score or config.ai.default_priority)
                 if prio > 5:
                     prio = 3
                 t.priority_score = max(1, min(5, prio))
+                t.category = getattr(t, "category", "general")
             return tasks
 
         # 3. Perform 1 SINGLE batched Gemini API call for all uncached tasks
@@ -92,7 +100,7 @@ class AIEstimator:
             for t in uncached_tasks
         ]
 
-        prompt = f"""You are an executive workload manager AI. Analyze this batch of tasks and estimate duration, priority, and focus requirements based on user history.
+        prompt = f"""You are an executive workload manager AI. Analyze this batch of tasks and estimate duration, priority, category, and focus requirements based on user history.
 
 User Task Completion History:
 {history_summary}
@@ -107,6 +115,7 @@ Respond ONLY with a valid JSON array where each object matches this schema:
     "estimated_minutes": <int, e.g. 15, 30, 45, 60, 90, 120>,
     "priority_score": <int 1-5 where 1=ASAP, 2=High, 3=Regular, 4=Next Week, 5=Tracking>,
     "energy_level": <string, "high" | "medium" | "low">,
+    "category": <string, "urgent" (financial/overdue/failed payments) | "errands" (logistics/returns/shopping) | "car" (auto/maintenance/vehicle/DMV) | "admin" (passport/forms/school/official) | "tech" (tablet/devices/setup/coding) | "general">,
     "manager_directive": <string, 1 crisp sentence justifying priority & focus slot>,
     "flexible": <boolean, true if can be rescheduled>
   }}
@@ -134,10 +143,12 @@ Respond ONLY with a valid JSON array where each object matches this schema:
             logger.error("All Gemini model candidates failed. Using default heuristic fallbacks.")
             for t in uncached_tasks:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
-                prio = t.priority_score or config.ai.default_priority
+                saved_prio = self.db.get_priority_override(t.id)
+                prio = saved_prio if saved_prio else (t.priority_score or config.ai.default_priority)
                 if prio > 5:
                     prio = 3
                 t.priority_score = max(1, min(5, prio))
+                t.category = getattr(t, "category", "general")
             return tasks
 
         try:
@@ -155,10 +166,15 @@ Respond ONLY with a valid JSON array where each object matches this schema:
                     prio = 3
                 prio = max(1, min(5, prio))
 
+                cat = str(item.get("category", "general")).lower()
+                if cat not in ["urgent", "errands", "car", "admin", "tech", "general"]:
+                    cat = "general"
+
                 est_dict = {
                     "estimated_minutes": int(item.get("estimated_minutes", 30)),
                     "priority_score": prio,
                     "energy_level": str(item.get("energy_level", "medium")).lower(),
+                    "category": cat,
                     "manager_directive": str(item.get("manager_directive", "AI batch estimated focus block.")),
                     "reasoning": "Batch AI estimated"
                 }
@@ -167,8 +183,16 @@ Respond ONLY with a valid JSON array where each object matches this schema:
                 self.db.save_cached_estimate(chash, est_dict)
 
                 t.estimated_minutes = est_dict["estimated_minutes"]
-                t.priority_score = est_dict["priority_score"]
+                
+                # Explicit user priority override MUST take precedence over fresh AI estimate
+                saved_prio = self.db.get_priority_override(t.id)
+                if saved_prio:
+                    t.priority_score = max(1, min(5, saved_prio))
+                else:
+                    t.priority_score = est_dict["priority_score"]
+
                 t.energy = est_dict["energy_level"]
+                t.category = est_dict["category"]
                 t.manager_directive = est_dict["manager_directive"]
                 t.flexible = bool(item.get("flexible", True))
 
@@ -178,10 +202,12 @@ Respond ONLY with a valid JSON array where each object matches this schema:
             logger.error(f"Error parsing Gemini batch response: {e}. Using fallback default values.")
             for t in uncached_tasks:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
-                prio = t.priority_score or config.ai.default_priority
+                saved_prio = self.db.get_priority_override(t.id)
+                prio = saved_prio if saved_prio else (t.priority_score or config.ai.default_priority)
                 if prio > 5:
                     prio = 3
                 t.priority_score = max(1, min(5, prio))
+                t.category = getattr(t, "category", "general")
 
         return tasks
 
