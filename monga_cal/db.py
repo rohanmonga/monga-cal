@@ -239,6 +239,11 @@ class Database:
             commit=True,
         )
 
+    def is_task_completed(self, task_id: str) -> bool:
+        sql = "SELECT id FROM task_history WHERE task_id = ?"
+        row = self._execute(sql, (task_id,), fetchone=True)
+        return row is not None
+
     def get_recent_completion_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         sql = """
             SELECT id, task_id, title, estimated_minutes, actual_minutes, completed_at

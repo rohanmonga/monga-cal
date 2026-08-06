@@ -178,6 +178,7 @@ async def get_plan():
 
 @app.get("/api/history")
 async def get_completion_history():
+    daemon_service.gservices.sync_completed_tasks_from_google(daemon_service.db)
     history = daemon_service.db.get_recent_completion_history(limit=100)
     total_est = sum(h["estimated_minutes"] for h in history)
     total_act = sum(h["actual_minutes"] for h in history)

@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 from monga_cal.models import Task, CalendarSlot, ScheduledBlock, SchedulePlan, SyncStatus
 from monga_cal.db import Database
 from monga_cal.ai_estimator import AIEstimator
-from monga_cal.gservices import GServicesClient
+from monga_cal.gservices import gservices_manager
 from monga_cal.scheduler import Scheduler
 from monga_cal.config import config
 
@@ -17,14 +17,13 @@ class DaemonService:
     def __init__(self):
         self.db = Database(config.daemon.db_path)
         self.ai = AIEstimator(self.db)
-        self.gservices = GServicesClient()
+        self.gservices = gservices_manager
         self.scheduler = Scheduler()
         self.status = SyncStatus()
         self._running = False
 
     def start(self):
         self._running = True
-        self.gservices.connect()
 
     def compute_plan_hash(self, blocks: List[ScheduledBlock]) -> str:
         data = [
@@ -62,6 +61,9 @@ class DaemonService:
         self.status.last_poll_time = datetime.now()
 
         try:
+            # 1. Sync completed tasks from Google Tasks to DB task_history
+            self.gservices.sync_completed_tasks_from_google(self.db)
+
             raw_tasks = self.gservices.fetch_tasks()
             now = datetime.now()
             start_dt = datetime.combine(now.date(), datetime.min.time())
@@ -98,7 +100,7 @@ class DaemonService:
 
             if should_sync:
                 logger.info(f"Syncing {len(plan.blocks)} schedule blocks to Google Calendar (force={force_calendar_sync})...")
-                synced = self.gservices.sync_scheduled_blocks(plan.blocks, start_dt, end_dt)
+                synced = self.gservices.sync_scheduled_blocks(plan.blocks)
                 if synced:
                     self.db.save_plan(new_hash, plan.blocks)
                     self.status.last_reschedule_time = datetime.now()
