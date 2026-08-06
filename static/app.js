@@ -113,7 +113,7 @@ async function fetchPlan() {
   }
 }
 
-// SMART DYNAMIC GANTT PACKING WITH PACKED TRACKS
+// SMART DYNAMIC GANTT PACKING WITH PACKED TRACKS & FULL TITLE WRAPPING
 function renderGanttChart() {
   const ganttTracks = document.getElementById('ganttTracks');
   const ganttTimeScale = document.getElementById('ganttTimeScale');
@@ -158,8 +158,6 @@ function renderGanttChart() {
   const tracks = [];
   todayBlocks.forEach(b => {
     const bStart = new Date(b.start).getTime();
-    const bEnd = new Date(b.end).getTime();
-
     let placedTrack = -1;
     for (let tIdx = 0; tIdx < tracks.length; tIdx++) {
       const lastInTrack = tracks[tIdx][tracks[tIdx].length - 1];
@@ -175,7 +173,7 @@ function renderGanttChart() {
     }
   });
 
-  const trackHeight = 56;
+  const trackHeight = 60;
   ganttTracks.style.height = `${tracks.length * trackHeight + 10}px`;
 
   const pastels = ['pastel-blue', 'pastel-peach', 'pastel-sage'];
@@ -190,7 +188,7 @@ function renderGanttChart() {
       const durationMinutes = (dtEnd - dtStart) / (1000 * 60);
 
       const leftPercent = Math.max(0, Math.min(96, (startMinutes / totalMinutes) * 100));
-      const widthPercent = Math.max(12, Math.min(100 - leftPercent, (durationMinutes / totalMinutes) * 100));
+      const widthPercent = Math.max(16, Math.min(100 - leftPercent, (durationMinutes / totalMinutes) * 100));
 
       const pastelClass = pastels[colorIdx % pastels.length];
       colorIdx++;
@@ -200,6 +198,7 @@ function renderGanttChart() {
       card.style.left = `${leftPercent}%`;
       card.style.width = `${widthPercent}%`;
       card.style.top = `${tIdx * trackHeight}px`;
+      card.title = `${escapeHtml(b.task_title)} (${b.estimated_minutes}m)`;
 
       const formatTime = (d) => {
         let h = d.getHours();
@@ -296,7 +295,16 @@ function createAgendaCard(task, block) {
     };
     timeHtml = `<div class="card-left-time">${fmt(dtStart)}<br>${fmt(dtEnd)}</div>`;
   } else if (task.deferred_until) {
-    timeHtml = `<div class="card-left-time">🌙<br>${task.deferred_until}</div>`;
+    // Format raw ISO "2026-08-06" as friendly "Aug 6"
+    let formattedDate = task.deferred_until;
+    try {
+      const parts = task.deferred_until.split('-');
+      if (parts.length === 3) {
+        const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        formattedDate = dObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }
+    } catch (e) {}
+    timeHtml = `<div class="card-left-time">🌙<br>${formattedDate}</div>`;
   }
 
   let prioClass = 'p5';
