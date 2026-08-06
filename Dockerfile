@@ -6,11 +6,12 @@ WORKDIR /app
 ENV TZ=America/Los_Angeles
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# Install system build dependencies and tzdata
+# Install system build dependencies, postgres libraries, and tzdata
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     tzdata \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -231,6 +231,14 @@ class Database:
         row = self._execute(sql, (task_id,), fetchone=True)
         return row is not None
 
+    def get_completed_count_today(self) -> int:
+        """Returns the number of tasks completed today."""
+        sql = "SELECT COUNT(*) as cnt FROM task_history WHERE completed_at::date = CURRENT_DATE" if self.is_postgres else "SELECT COUNT(*) as cnt FROM task_history WHERE DATE(completed_at) = DATE('now', 'localtime')"
+        row = self._execute(sql, fetchone=True)
+        if row:
+            return dict(row)["cnt"]
+        return 0
+
     def get_recent_completion_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         sql = """
             SELECT id, task_id, title, estimated_minutes, actual_minutes, completed_at

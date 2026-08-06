@@ -74,11 +74,19 @@ function initClock() {
 }
 
 function initEventListeners() {
+  // Navigation Tabs
+  const scheduleBtn = document.getElementById('tabScheduleBtn');
+  const historyBtn = document.getElementById('tabHistoryBtn');
+  if (scheduleBtn) scheduleBtn.addEventListener('click', () => switchTab('schedule'));
+  if (historyBtn) historyBtn.addEventListener('click', () => switchTab('history'));
+
+  // Reschedule Action Buttons
   const rescheduleBtn = document.getElementById('rescheduleBtn');
   const reSolveBottomBtn = document.getElementById('reSolveBottomBtn');
   if (rescheduleBtn) rescheduleBtn.addEventListener('click', triggerReschedule);
   if (reSolveBottomBtn) reSolveBottomBtn.addEventListener('click', triggerReschedule);
 
+  // Settings Modal
   const openSettingsBtn = document.getElementById('openSettingsBtn');
   const cancelSettingsBtn = document.getElementById('cancelSettingsBtn');
   const saveSettingsBtn = document.getElementById('saveSettingsBtn');
@@ -95,11 +103,12 @@ function initEventListeners() {
 
   if (saveSettingsBtn) saveSettingsBtn.addEventListener('click', saveSettings);
 
-  const dayChips = document.querySelectorAll('.day-chip');
+  const dayChips = document.querySelectorAll('.day-chip:not(.quick-chip)');
   dayChips.forEach(chip => {
     chip.addEventListener('click', () => chip.classList.toggle('active'));
   });
 
+  // Add Task Modal
   const openAddTaskBtn = document.getElementById('openAddTaskBtn');
   const cancelAddTaskBtn = document.getElementById('cancelAddTaskBtn');
   const saveAddTaskBtn = document.getElementById('saveAddTaskBtn');
@@ -109,17 +118,31 @@ function initEventListeners() {
   if (cancelAddTaskBtn) cancelAddTaskBtn.addEventListener('click', () => addTaskModal.classList.remove('active'));
   if (saveAddTaskBtn) saveAddTaskBtn.addEventListener('click', saveAddTask);
 
+  // Task Completion Modal
   const cancelModalBtn = document.getElementById('cancelModalBtn');
   const confirmCompleteBtn = document.getElementById('confirmCompleteBtn');
   const completionModal = document.getElementById('completionModal');
 
-  if (cancelModalBtn) cancelModalBtn.addEventListener('click', () => completionModal.classList.remove('active'));
+  if (cancelModalBtn) cancelModalBtn.addEventListener('click', () => {
+    completionModal.classList.remove('active');
+    completingTaskId = null;
+  });
   if (confirmCompleteBtn) confirmCompleteBtn.addEventListener('click', submitCompletion);
 
   const quickChips = document.querySelectorAll('.quick-chip');
   quickChips.forEach(chip => {
     chip.addEventListener('click', () => {
       document.getElementById('actualMinutesInput').value = chip.dataset.min;
+    });
+  });
+
+  // Dismiss Modals on Dark Backdrop Click
+  document.querySelectorAll('.modal-overlay').forEach(modal => {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('active');
+        if (modal.id === 'completionModal') completingTaskId = null;
+      }
     });
   });
 }
@@ -194,18 +217,28 @@ function renderHistoryView(historyItems, summary) {
         <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Logged:</span>
         <input type="number" class="log-hours-input" id="logInput_${item.id}" value="${item.actual_minutes}" min="0">
         <span style="font-size: 11.5px; font-weight: 600; color: var(--text-muted);">m</span>
-        <button class="btn-save-log" onclick="updateLoggedTime(${item.id})">Save</button>
+        <button class="btn-save-log">Save</button>
       </div>
     `;
+
+    const saveBtn = card.querySelector('.btn-save-log');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => updateLoggedTime(item.id, saveBtn));
+    }
 
     historyCardsGrid.appendChild(card);
   });
 }
 
-async function updateLoggedTime(recordId) {
+async function updateLoggedTime(recordId, buttonEl) {
   const inputEl = document.getElementById(`logInput_${recordId}`);
   if (!inputEl) return;
   const actualMinutes = parseInt(inputEl.value, 10) || 0;
+
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = '...';
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/history/${recordId}/log`, {
@@ -217,6 +250,11 @@ async function updateLoggedTime(recordId) {
     fetchHistory();
   } catch (err) {
     console.error('Error updating logged time:', err);
+  } finally {
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = 'Save';
+    }
   }
 }
 
@@ -356,8 +394,12 @@ function renderWorkloadAgenda() {
     }
   });
 
+  const solverStats = currentSchedule.solver_stats || {};
+  const completedTodayCount = solverStats.completed_today_count || 0;
+  const maxPerDay = currentConfig.max_tasks_per_day || 3;
+
   if (agendaTaskCount) {
-    agendaTaskCount.textContent = `${scheduledToday.length} tasks scheduled today (Max: ${currentConfig.max_tasks_per_day || 3})`;
+    agendaTaskCount.textContent = `${scheduledToday.length} tasks scheduled today (${completedTodayCount} completed today, Max: ${maxPerDay})`;
   }
 
   agendaTimeline.innerHTML = '';
@@ -461,9 +503,9 @@ function createAgendaCard(task, block) {
       ${directiveSubHtml}
     </div>
     <div class="card-right-controls">
-      <button class="btn-direct-snooze" onclick="deferTaskDirect('${task.id}', 1)" title="Snooze Tomorrow">🌙 Tomorrow</button>
+      <button class="btn-direct-snooze" title="Snooze Tomorrow">🌙 Tomorrow</button>
       
-      <select class="prio-select-dropdown ${prioClass}" onchange="updateTaskPriority('${task.id}', this.value)">
+      <select class="prio-select-dropdown ${prioClass}">
         <option value="1" ${rawPrio === 1 ? 'selected' : ''}>P1 (ASAP)</option>
         <option value="2" ${rawPrio === 2 ? 'selected' : ''}>P2 (High)</option>
         <option value="3" ${rawPrio === 3 ? 'selected' : ''}>P3 (Regular)</option>
@@ -471,9 +513,25 @@ function createAgendaCard(task, block) {
         <option value="5" ${rawPrio === 5 ? 'selected' : ''}>P5 (Tracking)</option>
       </select>
 
-      <button class="btn-complete-circle" onclick="openCompletionModal('${task.id}', '${escapeHtml(task.title)}', ${task.estimated_minutes || 30})" title="Complete Task">✓</button>
+      <button class="btn-complete-circle" title="Complete Task">✓</button>
     </div>
   `;
+
+  // Attach safe JavaScript event listeners without inline string interpolation
+  const btnSnooze = card.querySelector('.btn-direct-snooze');
+  if (btnSnooze) {
+    btnSnooze.addEventListener('click', (e) => deferTaskDirect(task.id, 1, e.target));
+  }
+
+  const prioSelect = card.querySelector('.prio-select-dropdown');
+  if (prioSelect) {
+    prioSelect.addEventListener('change', (e) => updateTaskPriority(task.id, e.target.value));
+  }
+
+  const btnComplete = card.querySelector('.btn-complete-circle');
+  if (btnComplete) {
+    btnComplete.addEventListener('click', () => openCompletionModal(task.id, task.title, task.estimated_minutes || 30));
+  }
 
   return card;
 }
@@ -494,14 +552,24 @@ async function updateTaskPriority(taskId, prio) {
 
 function openCompletionModal(taskId, title, estMin) {
   completingTaskId = taskId;
-  document.getElementById('modalTaskTitle').textContent = title;
-  document.getElementById('actualMinutesInput').value = estMin || 30;
-  document.getElementById('completionModal').classList.add('active');
+  const modalTaskTitle = document.getElementById('modalTaskTitle');
+  const actualMinutesInput = document.getElementById('actualMinutesInput');
+  const completionModal = document.getElementById('completionModal');
+
+  if (modalTaskTitle) modalTaskTitle.textContent = title;
+  if (actualMinutesInput) actualMinutesInput.value = estMin || 30;
+  if (completionModal) completionModal.classList.add('active');
 }
 
 async function submitCompletion() {
   if (!completingTaskId) return;
   const actualMinutes = parseInt(document.getElementById('actualMinutesInput').value, 10) || 30;
+  const confirmBtn = document.getElementById('confirmCompleteBtn');
+
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Completing...';
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/complete`, {
@@ -515,38 +583,77 @@ async function submitCompletion() {
       })
     });
     if (!res.ok) throw new Error('Failed to complete task');
-    document.getElementById('completionModal').classList.remove('active');
-    fetchPlan();
-    fetchHistory();
+    
+    const completionModal = document.getElementById('completionModal');
+    if (completionModal) completionModal.classList.remove('active');
+    completingTaskId = null;
+    
+    await Promise.all([fetchPlan(), fetchHistory()]);
   } catch (err) {
     console.error('Error completing task:', err);
+    alert('Failed to complete task. Please try again.');
+  } finally {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Mark Complete';
+    }
   }
 }
 
-async function deferTaskDirect(taskId, days) {
+async function deferTaskDirect(taskId, days, buttonEl) {
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    buttonEl.textContent = '🌙 Snoozing...';
+  }
+
   try {
     const res = await fetch(`${API_BASE}/api/tasks/${taskId}/defer?days=${days}`, { method: 'POST' });
     if (!res.ok) throw new Error('Failed to defer task');
-    fetchPlan();
+    await fetchPlan();
   } catch (err) {
     console.error('Error deferring task:', err);
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = '🌙 Tomorrow';
+    }
   }
 }
 
 async function triggerReschedule() {
+  const rescheduleBtn = document.getElementById('rescheduleBtn');
+  const reSolveBottomBtn = document.getElementById('reSolveBottomBtn');
+
+  if (rescheduleBtn) rescheduleBtn.disabled = true;
+  if (reSolveBottomBtn) {
+    reSolveBottomBtn.disabled = true;
+    reSolveBottomBtn.textContent = '⚡ Solving...';
+  }
+
   try {
     const res = await fetch(`${API_BASE}/api/reschedule`, { method: 'POST' });
     if (!res.ok) throw new Error('Failed to reschedule');
-    fetchPlan();
+    await fetchPlan();
   } catch (err) {
     console.error('Error rescheduling:', err);
+  } finally {
+    if (rescheduleBtn) rescheduleBtn.disabled = false;
+    if (reSolveBottomBtn) {
+      reSolveBottomBtn.disabled = false;
+      reSolveBottomBtn.textContent = '⚡ Re-Solve';
+    }
   }
 }
 
 async function saveAddTask() {
   const title = document.getElementById('newTaskTitleInput').value.trim();
   const notes = document.getElementById('newTaskNotesInput').value.trim();
+  const saveBtn = document.getElementById('saveAddTaskBtn');
   if (!title) return;
+
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Creating...';
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/tasks`, {
@@ -558,9 +665,15 @@ async function saveAddTask() {
     document.getElementById('newTaskTitleInput').value = '';
     document.getElementById('newTaskNotesInput').value = '';
     document.getElementById('addTaskModal').classList.remove('active');
-    fetchPlan();
+    await fetchPlan();
   } catch (err) {
     console.error('Error adding task:', err);
+    alert('Failed to create task. Please try again.');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Create Task';
+    }
   }
 }
 
@@ -571,7 +684,7 @@ function populateSettingsForm() {
   document.getElementById('maxTasksPerDayInput').value = currentConfig.max_tasks_per_day || 3;
 
   const activeDays = currentConfig.active_days || [0, 1, 2, 3, 4];
-  document.querySelectorAll('.day-chip').forEach(chip => {
+  document.querySelectorAll('.day-chip:not(.quick-chip)').forEach(chip => {
     const day = parseInt(chip.dataset.day, 10);
     if (activeDays.includes(day)) chip.classList.add('active');
     else chip.classList.remove('active');
@@ -580,16 +693,27 @@ function populateSettingsForm() {
 
 async function saveSettings() {
   const active_days = [];
-  document.querySelectorAll('.day-chip.active').forEach(chip => {
+  document.querySelectorAll('.day-chip.active:not(.quick-chip)').forEach(chip => {
     active_days.push(parseInt(chip.dataset.day, 10));
   });
 
+  if (active_days.length === 0) {
+    alert('Please select at least 1 active work day.');
+    return;
+  }
+
+  const saveBtn = document.getElementById('saveSettingsBtn');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+  }
+
   const payload = {
     active_days,
-    work_start_hour: parseInt(document.getElementById('workStartHourInput').value, 10),
-    work_end_hour: parseInt(document.getElementById('workEndHourInput').value, 10),
-    buffer_minutes: parseInt(document.getElementById('bufferMinutesInput').value, 10),
-    max_tasks_per_day: parseInt(document.getElementById('maxTasksPerDayInput').value, 10),
+    work_start_hour: parseInt(document.getElementById('workStartHourInput').value, 10) || 10,
+    work_end_hour: parseInt(document.getElementById('workEndHourInput').value, 10) || 17,
+    buffer_minutes: parseInt(document.getElementById('bufferMinutesInput').value, 10) || 10,
+    max_tasks_per_day: parseInt(document.getElementById('maxTasksPerDayInput').value, 10) || 3,
     high_energy_start_hour: 9,
     high_energy_end_hour: 12
   };
@@ -602,9 +726,15 @@ async function saveSettings() {
     });
     if (!res.ok) throw new Error('Failed to save settings');
     document.getElementById('settingsModal').classList.remove('active');
-    fetchPlan();
+    await fetchPlan();
   } catch (err) {
     console.error('Error saving settings:', err);
+    alert('Failed to save settings. Please try again.');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Settings';
+    }
   }
 }
 

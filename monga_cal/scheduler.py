@@ -33,6 +33,7 @@ class Scheduler:
         start_time: Optional[datetime] = None,
         days_ahead: int = 14,
         locked_blocks: Optional[List[Dict[str, Any]]] = None,
+        completed_today_count: int = 0,
     ) -> SchedulePlan:
         t0 = time.time()
 
@@ -161,11 +162,13 @@ class Scheduler:
                 except Exception as ex:
                     logger.warning(f"Error locking block '{l_id}': {ex}")
 
-        # OPTIMIZED PER-DAY MAX TASKS CONSTRAINT (Strictly enforced max_tasks_per_day)
+        # OPTIMIZED PER-DAY MAX TASKS CONSTRAINT (Strictly enforced max_tasks_per_day - completed_today_count)
         if self.max_tasks_per_day > 0:
             slots_by_day = defaultdict(list)
             for idx, slot_dt in enumerate(slots):
                 slots_by_day[slot_dt.date()].append(idx)
+
+            today_date = now.date()
 
             for day_date, day_slot_indices in slots_by_day.items():
                 min_idx = min(day_slot_indices)
@@ -185,7 +188,12 @@ class Scheduler:
                     model.AddBoolOr([info["is_scheduled"].Not(), c1.Not(), c2.Not()]).OnlyEnforceIf(is_on_day.Not())
                     day_starts.append(is_on_day)
 
-                model.Add(sum(day_starts) <= self.max_tasks_per_day)
+                if day_date == today_date:
+                    allowed_today = max(0, self.max_tasks_per_day - completed_today_count)
+                    model.Add(sum(day_starts) <= allowed_today)
+                    logger.info(f"Today's Capacity: max={self.max_tasks_per_day}, completed={completed_today_count}, remaining_allowed={allowed_today}")
+                else:
+                    model.Add(sum(day_starts) <= self.max_tasks_per_day)
 
         # SOFT OBJECTIVES
         objective_terms = []
@@ -295,6 +303,7 @@ class Scheduler:
             "tasks_count": len(tasks),
             "scheduled_count": len(blocks),
             "max_tasks_per_day": self.max_tasks_per_day,
+            "completed_today_count": completed_today_count,
             "deferred_count": len(deferred_ids),
             "active_days_configured": self.active_days,
             "work_hours": f"{self.work_start_hour}:00 - {self.work_end_hour}:00",

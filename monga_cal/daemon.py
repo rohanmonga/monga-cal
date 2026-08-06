@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class DaemonService:
     def __init__(self):
-        self.db = Database(config.daemon.db_path)
+        self.db = Database(config.daemon.database_url)
         self.ai = AIEstimator(self.db)
         self.gservices = gservices_manager
         self.scheduler = Scheduler()
@@ -67,7 +67,7 @@ class DaemonService:
             raw_tasks = self.gservices.fetch_tasks()
             now = datetime.now()
             start_dt = datetime.combine(now.date(), datetime.min.time())
-            end_dt = start_dt + timedelta(days=2)
+            end_dt = start_dt + timedelta(days=14)
 
             fixed_events = self.gservices.fetch_fixed_events(start_dt, end_dt)
             
@@ -83,13 +83,15 @@ class DaemonService:
             estimated_tasks = self.ai.estimate_tasks_batch(tasks)
 
             last_plan = self.db.get_latest_plan() or []
+            completed_today = self.db.get_completed_count_today()
 
             self.status.status = "solving"
             plan = self.scheduler.solve(
                 estimated_tasks,
                 fixed_events,
                 start_time=now,
-                locked_blocks=last_plan
+                locked_blocks=last_plan,
+                completed_today_count=completed_today
             )
             self.status.scheduled_blocks_count = len(plan.blocks)
 

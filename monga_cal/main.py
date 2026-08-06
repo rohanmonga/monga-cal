@@ -168,7 +168,13 @@ async def get_plan():
                 et.priority_score = 3
             et.priority_score = max(1, min(5, et.priority_score))
 
-    plan = daemon_service.scheduler.solve(estimated_tasks, fixed_events, start_time=now)
+    completed_today = daemon_service.db.get_completed_count_today()
+    plan = daemon_service.scheduler.solve(
+        estimated_tasks,
+        fixed_events,
+        start_time=now,
+        completed_today_count=completed_today
+    )
     for b in plan.blocks:
         saved_prio = daemon_service.db.get_priority_override(b.task_id)
         if saved_prio:
