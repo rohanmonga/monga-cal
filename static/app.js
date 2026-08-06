@@ -57,11 +57,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateSolverFooter(data) {
     const stats = data.schedule?.solver_stats || {};
-    document.getElementById('solverEngine').textContent = stats.engine || 'OR-Tools CP-SAT';
-    document.getElementById('solverStatus').textContent = stats.status || 'OPTIMAL';
-    document.getElementById('solverTime').textContent = `${stats.solve_time_sec || 0.005}s`;
-    document.getElementById('solverMaxTasks').textContent = data.config?.max_tasks_per_day || 5;
-    document.getElementById('solverHours').textContent = `${data.config?.work_start_hour || 8}:00 - ${data.config?.work_end_hour || 21}:00`;
+    const elEngine = document.getElementById('solverEngine');
+    const elStatus = document.getElementById('solverStatus');
+    const elTime = document.getElementById('solverTime');
+    const elMax = document.getElementById('solverMaxTasks');
+    const elHours = document.getElementById('solverHours');
+
+    if (elEngine) elEngine.textContent = stats.engine || 'OR-Tools CP-SAT';
+    if (elStatus) elStatus.textContent = stats.status || 'OPTIMAL';
+    if (elTime) elTime.textContent = `${stats.solve_time_sec || 0.005}s`;
+    if (elMax) elMax.textContent = data.config?.max_tasks_per_day || 5;
+    if (elHours) elHours.textContent = `${data.config?.work_start_hour || 8}:00 - ${data.config?.work_end_hour || 21}:00`;
   }
 
   // PACKED GANTT TIMELINE (NO WATERFALL SLOP)
@@ -75,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const startH = appState.workStartHour;
     const endH = appState.workEndHour;
-    const totalHours = endH - startH;
+    const totalHours = Math.max(1, endH - startH);
 
     // Render Hour Ticks
     for (let h = startH; h <= endH; h++) {
@@ -255,7 +261,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const prioVal = t.priority_score || 5;
 
-    // Direct Action buttons
     let actionButtons = '';
     if (category === 'deferred') {
       actionButtons = `<button class="btn-unsnooze" data-id="${t.id}">☀️ Un-snooze</button>`;
@@ -284,7 +289,6 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
-    // Event listeners
     card.querySelectorAll('.btn-direct-snooze').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -298,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (unsnoozeBtn) {
       unsnoozeBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        await deferTask(unsnoozeBtn.dataset.id, -1); // Clear deferral
+        await deferTask(unsnoozeBtn.dataset.id, -1);
       });
     }
 
@@ -386,8 +390,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const completionModal = document.getElementById('completionModal');
   function openCompleteModal(task) {
     appState.completingTask = task;
-    document.getElementById('modalTaskTitle').textContent = task.title;
-    document.getElementById('actualMinutesInput').value = task.estimated_minutes || 30;
+    const titleEl = document.getElementById('modalTaskTitle');
+    const minInput = document.getElementById('actualMinutesInput');
+    if (titleEl) titleEl.textContent = task.title;
+    if (minInput) minInput.value = task.estimated_minutes || 30;
     completionModal?.classList.add('active');
   }
 
@@ -397,13 +403,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.querySelectorAll('.quick-chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      document.getElementById('actualMinutesInput').value = chip.dataset.min;
+      const minInput = document.getElementById('actualMinutesInput');
+      if (minInput) minInput.value = chip.dataset.min;
     });
   });
 
   document.getElementById('confirmCompleteBtn')?.addEventListener('click', async () => {
     if (!appState.completingTask) return;
-    const actual = parseInt(document.getElementById('actualMinutesInput').value) || 30;
+    const minInput = document.getElementById('actualMinutesInput');
+    const actual = parseInt(minInput?.value || 30);
 
     try {
       const res = await fetch('/api/complete', {
@@ -428,26 +436,35 @@ document.addEventListener('DOMContentLoaded', () => {
   // RE-SOLVE BUTTON
   document.getElementById('rescheduleBtn')?.addEventListener('click', async () => {
     const btn = document.getElementById('rescheduleBtn');
-    btn.disabled = true;
-    btn.textContent = '⚡ Solving...';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⚡ Solving...';
+    }
     try {
       await fetch('/api/reschedule', { method: 'POST' });
       await fetchPlan();
     } catch (err) {
       alert('Reschedule error: ' + err.message);
     } finally {
-      btn.disabled = false;
-      btn.textContent = '⚡ Re-Solve';
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '⚡ Re-Solve';
+      }
     }
   });
 
-  // SETTINGS MODAL
+  // SETTINGS MODAL (SAFE NULL-CHECKED)
   const settingsModal = document.getElementById('settingsModal');
   document.getElementById('openSettingsBtn')?.addEventListener('click', () => {
-    document.getElementById('workStartHourInput').value = appState.workStartHour;
-    document.getElementById('workEndHourInput').value = appState.workEndHour;
-    document.getElementById('bufferMinutesInput').value = appState.bufferMinutes;
-    document.getElementById('maxTasksPerDayInput').value = appState.maxTasksPerDay;
+    const elStart = document.getElementById('workStartHourInput');
+    const elEnd = document.getElementById('workEndHourInput');
+    const elBuf = document.getElementById('bufferMinutesInput');
+    const elMax = document.getElementById('maxTasksPerDayInput');
+
+    if (elStart) elStart.value = appState.workStartHour;
+    if (elEnd) elEnd.value = appState.workEndHour;
+    if (elBuf) elBuf.value = appState.bufferMinutes;
+    if (elMax) elMax.value = appState.maxTasksPerDay;
 
     document.querySelectorAll('.day-chip').forEach(chip => {
       const d = parseInt(chip.dataset.day);
@@ -473,10 +490,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('saveSettingsBtn')?.addEventListener('click', async () => {
     const activeDays = Array.from(document.querySelectorAll('.day-chip.active')).map(c => parseInt(c.dataset.day));
-    const startH = parseInt(document.getElementById('workStartHourInput').value);
-    const endH = parseInt(document.getElementById('workEndHourInput').value);
-    const buf = parseInt(document.getElementById('bufferMinutesInput').value);
-    const maxTasks = parseInt(document.getElementById('maxTasksPerDayInput').value);
+    const startH = parseInt(document.getElementById('workStartHourInput')?.value || 8);
+    const endH = parseInt(document.getElementById('workEndHourInput')?.value || 21);
+    const buf = parseInt(document.getElementById('bufferMinutesInput')?.value || 10);
+    const maxTasks = parseInt(document.getElementById('maxTasksPerDayInput')?.value || 5);
 
     try {
       const res = await fetch('/api/config', {
