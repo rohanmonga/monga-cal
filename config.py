@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -61,6 +61,18 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
     ai_data = config_data.get("ai", {})
     daemon_data = config_data.get("daemon", {})
 
+    # Check if DB contains saved scheduler settings (for 100% Docker container persistence)
+    try:
+        from db import Database
+        db_path = daemon_data.get("db_path", "monga_cal.db")
+        if Path(db_path).exists():
+            db = Database(db_path)
+            saved_settings = db.get_setting("scheduler_settings")
+            if saved_settings and isinstance(saved_settings, dict):
+                scheduler_data.update(saved_settings)
+    except Exception:
+        pass
+
     return AppConfig(
         google=GoogleConfig(**google_data),
         icloud=ICloudConfig(**icloud_data),
@@ -71,7 +83,10 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
 
 def save_config(app_config: AppConfig, config_file: str = "config.yaml"):
     config_dict = app_config.model_dump()
-    with open(config_file, "w", encoding="utf-8") as f:
-        yaml.safe_dump(config_dict, f, default_flow_style=False)
+    try:
+        with open(config_file, "w", encoding="utf-8") as f:
+            yaml.safe_dump(config_dict, f, default_flow_style=False)
+    except Exception:
+        pass
 
 config = load_config()

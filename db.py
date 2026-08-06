@@ -57,7 +57,6 @@ class Database:
                 )
             """)
 
-            # Table for user custom priority overrides
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS priority_overrides (
                     task_id TEXT PRIMARY KEY,
@@ -65,7 +64,42 @@ class Database:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             conn.commit()
+
+    def save_setting(self, key: str, value: Any):
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO app_settings (key, value_json, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                """,
+                (key, json.dumps(value)),
+            )
+            conn.commit()
+
+    def get_setting(self, key: str) -> Optional[Any]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT value_json FROM app_settings WHERE key = ?",
+                (key,),
+            )
+            row = cursor.fetchone()
+            if row:
+                try:
+                    return json.loads(row["value_json"])
+                except Exception:
+                    pass
+            return None
 
     def save_priority_override(self, task_id: str, priority_score: int):
         with self._get_connection() as conn:

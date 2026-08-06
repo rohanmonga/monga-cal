@@ -84,8 +84,17 @@ async def update_config(req: ScheduleSettingsRequest, background_tasks: Backgrou
     config.scheduler.high_energy_start_hour = req.high_energy_start_hour
     config.scheduler.high_energy_end_hour = req.high_energy_end_hour
     
+    settings_dict = {
+        "active_days": req.active_days,
+        "work_start_hour": req.work_start_hour,
+        "work_end_hour": req.work_end_hour,
+        "buffer_minutes": req.buffer_minutes,
+        "high_energy_start_hour": req.high_energy_start_hour,
+        "high_energy_end_hour": req.high_energy_end_hour,
+    }
+    daemon_service.db.save_setting("scheduler_settings", settings_dict)
     save_config(config)
-    logger.info("Updated schedule settings & saved config.yaml")
+    logger.info("Updated schedule settings & saved to SQLite DB + config.yaml")
     
     daemon_service.gservices.invalidate_cache()
     background_tasks.add_task(daemon_service.run_sync_cycle, True)
