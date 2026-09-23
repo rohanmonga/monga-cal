@@ -39,7 +39,6 @@ class GoogleServicesManager:
             self.tz_info = ZoneInfo("UTC")
 
         self._connected = False
-        self._custom_tasks: List[Task] = []
         self._tasks_cache: Optional[List[Task]] = None
         self._tasks_cache_time: float = 0.0
         self._events_cache: Optional[List[CalendarSlot]] = None
@@ -413,13 +412,13 @@ class GoogleServicesManager:
 
         t0 = time.time()
         try:
-            start_search = datetime.now() - timedelta(days=1)
-            end_search = datetime.now() + timedelta(days=14)
+            start_search = (datetime.now(self.tz_info) - timedelta(days=1)).isoformat()
+            end_search = (datetime.now(self.tz_info) + timedelta(days=14)).isoformat()
 
             events_result = self.calendar_service.events().list(
                 calendarId=config.google.calendar_id,
-                timeMin=start_search.isoformat() + "Z",
-                timeMax=end_search.isoformat() + "Z",
+                timeMin=start_search,
+                timeMax=end_search,
                 singleEvents=True,
             ).execute()
 

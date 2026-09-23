@@ -89,13 +89,16 @@ class AIEstimator:
             return []
 
         uncached_tasks: List[Task] = []
-        task_hashes: Dict[str, str] = {}
+        task_hashes: Dict[str, str] = {t.id: self._hash_task(t) for t in tasks}
 
-        # 1. Load from DB cache first
+        # 1. Load from DB cache first using batch lookups (1 SQL query each)
+        all_hashes = list(task_hashes.values())
+        cached_batch = self.db.get_cached_estimates_batch(all_hashes)
+        priority_overrides = self.db.get_all_priority_overrides()
+
         for t in tasks:
-            chash = self._hash_task(t)
-            task_hashes[t.id] = chash
-            cached = self.db.get_cached_estimate(chash)
+            chash = task_hashes[t.id]
+            cached = cached_batch.get(chash)
             if cached:
                 prio = cached.get("priority_score", 3)
                 if prio > 5:
@@ -118,7 +121,7 @@ class AIEstimator:
                 uncached_tasks.append(t)
 
             # Explicit user priority overrides MUST take precedence over cached AI estimates
-            saved_prio = self.db.get_priority_override(t.id)
+            saved_prio = priority_overrides.get(t.id)
             if saved_prio:
                 t.priority_score = max(1, min(5, saved_prio))
 
@@ -131,7 +134,7 @@ class AIEstimator:
         if not self.client:
             for t in uncached_tasks:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
-                saved_prio = self.db.get_priority_override(t.id)
+                saved_prio = priority_overrides.get(t.id)
                 prio = saved_prio if saved_prio else (t.priority_score or config.ai.default_priority)
                 if prio > 5:
                     prio = 3
@@ -201,7 +204,7 @@ Respond ONLY with a valid JSON array where each object matches this schema:
             logger.error("All Gemini model candidates failed. Using default heuristic fallbacks.")
             for t in uncached_tasks:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
-                saved_prio = self.db.get_priority_override(t.id)
+                saved_prio = priority_overrides.get(t.id)
                 prio = saved_prio if saved_prio else (t.priority_score or config.ai.default_priority)
                 if prio > 5:
                     prio = 3
@@ -248,7 +251,7 @@ Respond ONLY with a valid JSON array where each object matches this schema:
                 t.estimated_minutes = est_dict["estimated_minutes"]
                 
                 # Explicit user priority override MUST take precedence over fresh AI estimate
-                saved_prio = self.db.get_priority_override(t.id)
+                saved_prio = priority_overrides.get(t.id)
                 if saved_prio:
                     t.priority_score = max(1, min(5, saved_prio))
                 else:
@@ -267,7 +270,7 @@ Respond ONLY with a valid JSON array where each object matches this schema:
             logger.error(f"Error parsing Gemini batch response: {e}. Using fallback default values.")
             for t in uncached_tasks:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
-                saved_prio = self.db.get_priority_override(t.id)
+                saved_prio = priority_overrides.get(t.id)
                 prio = saved_prio if saved_prio else (t.priority_score or config.ai.default_priority)
                 if prio > 5:
                     prio = 3

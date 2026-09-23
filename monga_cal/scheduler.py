@@ -110,7 +110,19 @@ class Scheduler:
             total_duration_slots = num_req_slots + buffer_slots
 
             is_scheduled = model.NewBoolVar(f"sched_{t.id}")
-            start_var = model.NewIntVar(0, max(0, num_slots - total_duration_slots), f"start_{t.id}")
+
+            # Contiguity check: start_var must be at an index where the required duration is completely contiguous in real time
+            valid_start_indices = [
+                i for i in range(num_slots - total_duration_slots + 1)
+                if slots[i + total_duration_slots - 1] == slots[i] + timedelta(minutes=(total_duration_slots - 1) * SLOT_MINUTES)
+            ]
+
+            if not valid_start_indices:
+                model.Add(is_scheduled == 0)
+                start_var = model.NewIntVar(0, num_slots, f"start_{t.id}")
+            else:
+                start_var = model.NewIntVarFromDomain(cp_model.Domain.FromValues(valid_start_indices), f"start_{t.id}")
+
             end_var = model.NewIntVar(0, num_slots, f"end_{t.id}")
             interval_var = model.NewOptionalIntervalVar(
                 start_var, total_duration_slots, end_var, is_scheduled, f"interval_{t.id}"
@@ -135,6 +147,7 @@ class Scheduler:
                 "interval": interval_var,
                 "num_req_slots": num_req_slots,
                 "total_duration_slots": total_duration_slots,
+                "valid_start_indices": valid_start_indices,
             }
             interval_vars.append(interval_var)
 
@@ -154,8 +167,7 @@ class Scheduler:
                         matching_indices = [i for i, s_dt in enumerate(slots) if s_dt >= l_start]
                         if matching_indices:
                             closest_slot_idx = matching_indices[0]
-                            max_avail = max(0, num_slots - task_vars[l_id]["total_duration_slots"])
-                            if closest_slot_idx <= max_avail:
+                            if closest_slot_idx in task_vars[l_id]["valid_start_indices"]:
                                 model.Add(task_vars[l_id]["is_scheduled"] == 1)
                                 model.Add(task_vars[l_id]["start"] == closest_slot_idx)
                                 logger.info(f"Lock Window: Freezing imminent task '{l_id}' at slot {closest_slot_idx} ({slots[closest_slot_idx]})")

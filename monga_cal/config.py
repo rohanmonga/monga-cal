@@ -73,12 +73,15 @@ def load_config(config_file: str = "config.yaml") -> AppConfig:
 
     try:
         from monga_cal.db import Database
-        db_conn_str = daemon_data.get("database_url") or os.getenv("DATABASE_URL")
+        db_conn_str = daemon_data.get("database_url") or os.getenv("DATABASE_URL") or daemon_data.get("db_path", "monga_cal.db")
         if db_conn_str:
             db = Database(db_conn_str)
-            saved_settings = db.get_setting("scheduler_settings")
-            if saved_settings and isinstance(saved_settings, dict):
-                scheduler_data.update(saved_settings)
+            try:
+                saved_settings = db.get_setting("scheduler_settings")
+                if saved_settings and isinstance(saved_settings, dict):
+                    scheduler_data.update(saved_settings)
+            finally:
+                db.close()
     except Exception as e:
         logger.warning(f"Could not load settings override from DB: {e}")
 

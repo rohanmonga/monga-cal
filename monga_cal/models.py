@@ -57,14 +57,14 @@ class SchedulePlan(BaseModel):
     fixed_events: List[CalendarSlot] = Field(default_factory=list)
     unscheduled_task_ids: List[str] = Field(default_factory=list)
     solver_stats: Dict[str, Any] = Field(default_factory=dict)
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=datetime.now)
 
 class TaskCompletionRecord(BaseModel):
     task_id: str
     title: str
     estimated_minutes: int
     actual_minutes: int
-    completed_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: datetime = Field(default_factory=datetime.now)
 
 class SyncStatus(BaseModel):
     last_poll_time: Optional[datetime] = None
@@ -87,4 +87,10 @@ class KidStarRequest(BaseModel):
     kid_name: str
     delta: int = 1
     chore: Optional[str] = ""
+
+class SnoozeRequest(BaseModel):
+    task_id: str
+    days: Optional[int] = 1
+    hours: Optional[int] = None
+
 

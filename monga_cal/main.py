@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from monga_cal.daemon import daemon_service
-from monga_cal.models import TaskCompletionRecord, SchedulePlan, ScheduledBlock, Task, ScheduleSettingsRequest, KidStarRequest
+from monga_cal.models import TaskCompletionRecord, SchedulePlan, ScheduledBlock, Task, ScheduleSettingsRequest, KidStarRequest, SnoozeRequest
 from monga_cal.config import config, save_config
 
 
@@ -218,9 +218,10 @@ async def get_plan(force_solve: bool = False):
 
     if not force_solve and existing_plan_raw:
         raw_tasks = daemon_service.gservices.fetch_tasks()
+        active_deferrals = daemon_service.db.get_all_active_deferrals()
         tasks = []
         for t in raw_tasks:
-            t.deferred_until = daemon_service.db.get_deferred_until(t.id)
+            t.deferred_until = active_deferrals.get(t.id)
             tasks.append(t)
 
         estimated_tasks = daemon_service.ai.estimate_tasks_batch(tasks)
@@ -343,6 +344,22 @@ async def defer_task(task_id: str, days: int = Query(default=1)):
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {"message": f"Task snoozed for {days} days (until {until_date})", "task_id": task_id, "deferred_until": until_date.isoformat(), "schedule": plan.model_dump(mode="json")}
 
+@app.post("/api/snooze")
+async def snooze_task(req: SnoozeRequest):
+    days = req.days if req.days is not None else 1
+    until_date = (datetime.now() + timedelta(days=days)).date()
+    daemon_service.db.defer_task(req.task_id, until_date)
+    logger.info(f"Snoozed task '{req.task_id}' for {days} days (until {until_date})")
+    
+    daemon_service.gservices.invalidate_cache()
+    plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
+    return {
+        "message": f"Task snoozed for {days} day(s) (until {until_date})",
+        "task_id": req.task_id,
+        "deferred_until": until_date.isoformat(),
+        "schedule": plan.model_dump(mode="json")
+    }
+
 @app.post("/api/reschedule")
 async def trigger_reschedule():
     logger.info("Manual reschedule requested via API.")
@@ -363,10 +380,6 @@ async def complete_task(req: TaskCompletionRequest, background_tasks: Background
     )
     daemon_service.db.record_completion(record)
     logger.info(f"Recorded completion for task '{req.title}' (actual: {req.actual_minutes}m)")
-    
-    daemon_service.gservices._custom_tasks = [
-        t for t in daemon_service.gservices._custom_tasks if t.id != req.task_id
-    ]
 
     background_tasks.add_task(daemon_service.gservices.mark_task_complete, req.task_id)
     background_tasks.add_task(daemon_service.run_sync_cycle, True)

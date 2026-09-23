@@ -12,9 +12,11 @@ load_dotenv()
 try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
+    from psycopg2.pool import ThreadedConnectionPool
 except ImportError:
     psycopg2 = None
     RealDictCursor = None
+    ThreadedConnectionPool = None
 
 from monga_cal.models import TaskCompletionRecord, ScheduledBlock
 
@@ -26,25 +28,59 @@ class Database:
             db_path_or_url = os.getenv("DATABASE_URL")
             
         if not db_path_or_url:
-            raise RuntimeError("DATABASE_URL environment variable is missing! Direct PostgreSQL connection to Pi is required.")
+            db_path_or_url = os.getenv("DB_PATH", "monga_cal.db")
 
         self.connection_string = db_path_or_url
         self.is_postgres = self.connection_string.startswith(("postgresql://", "postgres://"))
+        self._pool = None
         
-        if self.is_postgres and not psycopg2:
-            raise RuntimeError(
-                "PostgreSQL connection string provided in DATABASE_URL, but 'psycopg2' is not installed."
-            )
+        if self.is_postgres:
+            if not psycopg2 or not ThreadedConnectionPool:
+                raise RuntimeError(
+                    "PostgreSQL connection string provided in DATABASE_URL, but 'psycopg2' is not installed."
+                )
+            try:
+                self._pool = ThreadedConnectionPool(
+                    minconn=1,
+                    maxconn=10,
+                    dsn=self.connection_string,
+                    cursor_factory=RealDictCursor
+                )
+                logger.info("Initialized PostgreSQL ThreadedConnectionPool (minconn=1, maxconn=10)")
+            except Exception as e:
+                logger.error(f"Failed to create PostgreSQL connection pool: {e}")
+                raise e
 
         self._init_db()
 
     def _get_connection(self):
-        if self.is_postgres:
-            return psycopg2.connect(self.connection_string, cursor_factory=RealDictCursor)
+        if self.is_postgres and self._pool:
+            return self._pool.getconn()
         else:
             conn = sqlite3.connect(self.connection_string, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             return conn
+
+    def _release_connection(self, conn):
+        if self.is_postgres and self._pool:
+            try:
+                self._pool.putconn(conn)
+            except Exception as e:
+                logger.warning(f"Error returning connection to pool: {e}")
+        else:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def close(self):
+        """Cleanly releases all connections in the pool."""
+        if self.is_postgres and self._pool:
+            try:
+                self._pool.closeall()
+                logger.info("Closed PostgreSQL connection pool.")
+            except Exception as e:
+                logger.warning(f"Error closing PostgreSQL connection pool: {e}")
 
     def _format_sql(self, sql: str) -> str:
         """Converts ? parameter syntax to %s for PostgreSQL."""
@@ -120,7 +156,17 @@ class Database:
             cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS color_preset TEXT DEFAULT 'neutral';")
             conn.commit()
         else:
-            cursor.execute("""
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS task_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id TEXT,
+                    title TEXT NOT NULL,
+                    estimated_minutes INTEGER NOT NULL,
+                    actual_minutes INTEGER NOT NULL,
+                    completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC);
+
                 CREATE TABLE IF NOT EXISTS estimate_cache (
                     content_hash TEXT PRIMARY KEY,
                     estimated_minutes INTEGER,
@@ -132,6 +178,31 @@ class Database:
                     manager_directive TEXT,
                     reasoning TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS plan_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plan_hash TEXT NOT NULL,
+                    plan_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS task_deferrals (
+                    task_id TEXT PRIMARY KEY,
+                    deferred_until DATE NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS priority_overrides (
+                    task_id TEXT PRIMARY KEY,
+                    priority_score INTEGER NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
                 CREATE TABLE IF NOT EXISTS kid_stars (
@@ -157,9 +228,9 @@ class Database:
                 pass
             conn.commit()
 
-
-        conn.close()
-        logger.info(f"Database initialized successfully (Engine: {'PostgreSQL' if self.is_postgres else 'SQLite'})")
+        cursor.close()
+        self._release_connection(conn)
+        logger.info(f"Database initialized successfully (Engine: {'PostgreSQL Pool' if self.is_postgres else 'SQLite'})")
 
     def save_setting(self, key: str, value: Any):
         sql = """
@@ -491,9 +562,72 @@ class Database:
             elif fetchall:
                 result = cursor.fetchall()
 
+            cursor.close()
             return result
         except Exception as e:
+            if commit and self.is_postgres:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             logger.error(f"Database query error: {e} | SQL: {sql}")
             raise e
         finally:
-            conn.close()
+            self._release_connection(conn)
+
+    def get_cached_estimates_batch(self, content_hashes: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Batched lookup of estimates from local DB cache in 1 query."""
+        if not content_hashes:
+            return {}
+        placeholders = ", ".join(["?"] * len(content_hashes))
+        sql = f"""
+            SELECT content_hash, estimated_minutes, priority_score, energy_level, category, category_icon, color_preset, manager_directive, reasoning
+            FROM estimate_cache
+            WHERE content_hash IN ({placeholders})
+        """
+        rows = self._execute(sql, tuple(content_hashes), fetchall=True) or []
+        res = {}
+        for r in rows:
+            r_dict = dict(r)
+            res[r_dict["content_hash"]] = {
+                "estimated_minutes": r_dict["estimated_minutes"],
+                "priority_score": r_dict["priority_score"],
+                "energy_level": r_dict["energy_level"],
+                "category": r_dict.get("category", "General") or "General",
+                "category_icon": r_dict.get("category_icon", "📌") or "📌",
+                "color_preset": r_dict.get("color_preset", "neutral") or "neutral",
+                "manager_directive": r_dict.get("manager_directive", "Standard priority focus block."),
+                "reasoning": r_dict.get("reasoning", ""),
+            }
+        return res
+
+    def get_all_priority_overrides(self) -> Dict[str, int]:
+        """Fetches all user priority overrides in 1 query."""
+        sql = "SELECT task_id, priority_score FROM priority_overrides"
+        rows = self._execute(sql, fetchall=True) or []
+        return {dict(r)["task_id"]: dict(r)["priority_score"] for r in rows}
+
+    def get_all_active_deferrals(self) -> Dict[str, date]:
+        """Fetches all active task deferrals in 1 query, automatically purging expired ones."""
+        sql = "SELECT task_id, deferred_until FROM task_deferrals"
+        rows = self._execute(sql, fetchall=True) or []
+        today = date.today()
+        expired_ids = []
+        active = {}
+        for r in rows:
+            r_dict = dict(r)
+            t_id = r_dict["task_id"]
+            val = r_dict.get("deferred_until")
+            if val:
+                try:
+                    def_date = date.fromisoformat(str(val)) if isinstance(val, str) else val
+                    if def_date < today:
+                        expired_ids.append(t_id)
+                    else:
+                        active[t_id] = def_date
+                except Exception:
+                    pass
+        if expired_ids:
+            placeholders = ", ".join(["?"] * len(expired_ids))
+            self._execute(f"DELETE FROM task_deferrals WHERE task_id IN ({placeholders})", tuple(expired_ids), commit=True)
+        return active

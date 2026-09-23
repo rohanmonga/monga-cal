@@ -11,6 +11,7 @@ let selectedGanttDate = new Date().toISOString().split('T')[0];
 
 document.addEventListener('DOMContentLoaded', () => {
   initClock();
+  initTabletPreferences();
   initEventListeners();
   fetchPlan();
   fetchKidsStars();
@@ -57,6 +58,13 @@ function initEventListeners() {
   if (openAddTaskBtn) openAddTaskBtn.addEventListener('click', () => addTaskModal.classList.add('active'));
   if (cancelAddTaskBtn) cancelAddTaskBtn.addEventListener('click', () => addTaskModal.classList.remove('active'));
   if (saveAddTaskBtn) saveAddTaskBtn.addEventListener('click', saveAddTask);
+
+  // Fullscreen / Kiosk Toggle for Wall Tablets
+  const toggleFullscreenBtn = document.getElementById('toggleFullscreenBtn');
+  if (toggleFullscreenBtn) {
+    toggleFullscreenBtn.addEventListener('click', toggleKioskFullscreen);
+  }
+  document.addEventListener('fullscreenchange', updateFullscreenButtonState);
 
   // Settings Modal
   const openSettingsBtn = document.getElementById('openSettingsBtn');
@@ -271,6 +279,8 @@ function renderKidsStarWidget() {
     if (instantBtn) {
       instantBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        card.classList.add('star-reward-active');
+        setTimeout(() => card.classList.remove('star-reward-active'), 450);
         awardStar(kid.kid_name, 1, 'Quick Star Reward');
       });
     }
@@ -333,7 +343,10 @@ function renderKidsStarWidget() {
   }
 }
 
+let isFetchingPlan = false;
 async function fetchPlan() {
+  if (isFetchingPlan) return;
+  isFetchingPlan = true;
   try {
     const res = await fetch(`${API_BASE}/api/plan`);
     if (!res.ok) throw new Error('Failed to fetch plan');
@@ -350,6 +363,8 @@ async function fetchPlan() {
     renderGanttChart();
   } catch (err) {
     console.error('Error fetching plan:', err);
+  } finally {
+    isFetchingPlan = false;
   }
 }
 
@@ -473,7 +488,7 @@ function renderCurrentFocusHero() {
             <span>✅</span> Mark Complete
           </button>
           <button class="btn-hero-snooze" id="heroSnoozeBtn">
-            <span>🌙</span> Snooze 1h
+            <span>🌙</span> Snooze 1 Day
           </button>
         `;
         const cBtn = document.getElementById('heroCompleteBtn');
@@ -1046,8 +1061,77 @@ async function updateLoggedTime(recordId, buttonEl) {
 }
 
 /* ===================================================
-   SETTINGS
+   SETTINGS & TABLET PREFERENCES
 =================================================== */
+let wakeLockSentinel = null;
+
+async function requestScreenWakeLock() {
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLockSentinel = await navigator.wakeLock.request('screen');
+      console.log('Screen WakeLock active for tablet wall display.');
+      wakeLockSentinel.addEventListener('release', () => {
+        wakeLockSentinel = null;
+      });
+    } catch (err) {
+      console.warn('WakeLock request error:', err);
+    }
+  }
+}
+
+function releaseScreenWakeLock() {
+  if (wakeLockSentinel) {
+    wakeLockSentinel.release().catch(err => console.warn(err));
+    wakeLockSentinel = null;
+  }
+}
+
+function toggleKioskFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(err => {
+      console.warn('Fullscreen request failed:', err);
+    });
+  } else {
+    if (document.exitFullscreen) {
+      document.exitFullscreen().catch(err => console.warn(err));
+    }
+  }
+}
+
+function updateFullscreenButtonState() {
+  const btn = document.getElementById('toggleFullscreenBtn');
+  if (!btn) return;
+  if (document.fullscreenElement) {
+    btn.innerHTML = '<span>✕</span>';
+    btn.title = 'Exit Fullscreen';
+  } else {
+    btn.innerHTML = '<span>⛶</span>';
+    btn.title = 'Toggle Kiosk Fullscreen (Wall Tablet)';
+  }
+}
+
+function initTabletPreferences() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const kioskParam = urlParams.get('kiosk');
+  const storedKiosk = localStorage.getItem('monga_kiosk_fit');
+  const storedWakeLock = localStorage.getItem('monga_keep_awake');
+
+  if (kioskParam === '1' || kioskParam === 'true' || storedKiosk === 'true') {
+    document.body.classList.add('kiosk-mode');
+  }
+
+  if (storedWakeLock === 'true') {
+    requestScreenWakeLock();
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      const keepAwake = localStorage.getItem('monga_keep_awake') === 'true';
+      if (keepAwake) requestScreenWakeLock();
+    }
+  });
+}
+
 function populateSettingsForm() {
   const activeDays = currentConfig.active_days || [0, 1, 2, 3, 4];
   const dayChips = document.querySelectorAll('#activeDaysSelector .day-chip');
@@ -1061,6 +1145,11 @@ function populateSettingsForm() {
   document.getElementById('workEndHourInput').value = currentConfig.work_end_hour || 17;
   document.getElementById('bufferMinutesInput').value = currentConfig.buffer_minutes || 10;
   document.getElementById('maxTasksPerDayInput').value = currentConfig.max_tasks_per_day || 3;
+
+  const wakeLockCheckbox = document.getElementById('wakeLockSettingCheckbox');
+  const kioskCheckbox = document.getElementById('kioskFitSettingCheckbox');
+  if (wakeLockCheckbox) wakeLockCheckbox.checked = localStorage.getItem('monga_keep_awake') === 'true';
+  if (kioskCheckbox) kioskCheckbox.checked = document.body.classList.contains('kiosk-mode');
 }
 
 async function saveSettings() {
@@ -1078,6 +1167,21 @@ async function saveSettings() {
     high_energy_start_hour: 9,
     high_energy_end_hour: 12
   };
+
+  const wakeLockCheckbox = document.getElementById('wakeLockSettingCheckbox');
+  const kioskCheckbox = document.getElementById('kioskFitSettingCheckbox');
+  if (wakeLockCheckbox) {
+    const enableWakeLock = wakeLockCheckbox.checked;
+    localStorage.setItem('monga_keep_awake', enableWakeLock ? 'true' : 'false');
+    if (enableWakeLock) requestScreenWakeLock();
+    else releaseScreenWakeLock();
+  }
+  if (kioskCheckbox) {
+    const enableKiosk = kioskCheckbox.checked;
+    localStorage.setItem('monga_kiosk_fit', enableKiosk ? 'true' : 'false');
+    if (enableKiosk) document.body.classList.add('kiosk-mode');
+    else document.body.classList.remove('kiosk-mode');
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/settings`, {

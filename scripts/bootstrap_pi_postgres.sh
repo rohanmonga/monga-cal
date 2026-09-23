@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS estimate_cache (
     estimated_minutes INTEGER,
     priority_score INTEGER,
     energy_level TEXT,
+    category TEXT DEFAULT 'General',
+    category_icon TEXT DEFAULT '📌',
+    color_preset TEXT DEFAULT 'neutral',
     manager_directive TEXT,
     reasoning TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -69,6 +72,15 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS kid_stars (
+    id SERIAL PRIMARY KEY,
+    kid_name TEXT NOT NULL,
+    stars_delta INTEGER NOT NULL DEFAULT 1,
+    chore_description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_kid_stars ON kid_stars(kid_name, created_at);
+
 -- Ensure user '$DB_USER' owns all created tables
 ALTER TABLE task_history OWNER TO $DB_USER;
 ALTER TABLE estimate_cache OWNER TO $DB_USER;
@@ -76,6 +88,7 @@ ALTER TABLE plan_history OWNER TO $DB_USER;
 ALTER TABLE task_deferrals OWNER TO $DB_USER;
 ALTER TABLE priority_overrides OWNER TO $DB_USER;
 ALTER TABLE app_settings OWNER TO $DB_USER;
+ALTER TABLE kid_stars OWNER TO $DB_USER;
 EOF
 
 echo "=================================================="

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class DaemonService:
     def __init__(self):
-        self.db = Database(config.daemon.database_url)
+        self.db = Database(config.daemon.database_url or config.daemon.db_path)
         self.ai = AIEstimator(self.db)
         self.gservices = gservices_manager
         self.scheduler = Scheduler()
@@ -51,11 +51,11 @@ class DaemonService:
             end_dt = start_dt + timedelta(days=14)
 
             fixed_events = self.gservices.fetch_fixed_events(start_dt, end_dt)
+            active_deferrals = self.db.get_all_active_deferrals()
             
             tasks: List[Task] = []
             for t in raw_tasks:
-                def_date = self.db.get_deferred_until(t.id)
-                t.deferred_until = def_date
+                t.deferred_until = active_deferrals.get(t.id)
                 tasks.append(t)
 
             self.status.tasks_count = len(tasks)
@@ -72,7 +72,7 @@ class DaemonService:
                 self.status.last_error = None
                 existing_blocks = [ScheduledBlock(**b) for b in existing_plan_raw]
                 self.status.scheduled_blocks_count = len(existing_blocks)
-                return SchedulePlan(blocks=existing_blocks, unscheduled_task_ids=[])
+                return SchedulePlan(blocks=existing_blocks, fixed_events=fixed_events, unscheduled_task_ids=[])
 
             # Re-solve ONLY when human action or task set change occurs
             self._last_task_set_hash = current_task_hash
