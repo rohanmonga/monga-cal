@@ -6,7 +6,7 @@ class CalendarSlot(BaseModel):
     start: datetime
     end: datetime
     is_fixed: bool = True
-    title: Optional[str] = ""
+    title: Optional[str] = "Calendar Event"
     event_uid: Optional[str] = None
 
 class Task(BaseModel):
@@ -54,6 +54,7 @@ class ScheduledBlock(BaseModel):
 
 class SchedulePlan(BaseModel):
     blocks: List[ScheduledBlock] = Field(default_factory=list)
+    fixed_events: List[CalendarSlot] = Field(default_factory=list)
     unscheduled_task_ids: List[str] = Field(default_factory=list)
     solver_stats: Dict[str, Any] = Field(default_factory=dict)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -81,3 +82,9 @@ class ScheduleSettingsRequest(BaseModel):
     max_tasks_per_day: int
     high_energy_start_hour: int
     high_energy_end_hour: int
+
+class KidStarRequest(BaseModel):
+    kid_name: str
+    delta: int = 1
+    chore: Optional[str] = ""
+

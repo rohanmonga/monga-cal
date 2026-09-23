@@ -3,129 +3,256 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monga Cal — Executive Workload Manager</title>
+  <title>Monga Cal • Family & Focus Command Hub</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=4">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css?v=7">
 </head>
 <body>
 
-  <div class="tablet-frame">
-    <div class="wood-trim"></div>
-    <div class="tablet-content">
-
-      <!-- Top Executive Header -->
-      <header class="executive-header">
+  <div class="hub-container">
+    
+    <!-- Top Executive Header -->
+    <header class="hub-header">
+      <div class="header-brand-group">
+        <div class="brand-logo-badge">⚡</div>
         <div>
           <h1 class="brand-title">Monga Cal</h1>
-        </div>
-        
-        <div class="live-clock-widget">
-          <div class="clock-time" id="clockTime">--:--</div>
-          <div class="clock-date" id="clockDate">--</div>
-        </div>
-
-        <div class="header-right-actions">
-          <button class="icon-pill-btn" id="openSettingsBtn" title="Schedule Settings">⚙️</button>
-          <button class="icon-pill-btn" id="rescheduleBtn" title="Reschedule Plan">⚡</button>
-        </div>
-      </header>
-
-      <!-- Navigation Tabs -->
-      <nav class="nav-tabs-bar">
-        <button class="nav-tab-btn active" id="tabScheduleBtn">
-          <span>📅</span> Schedule
-        </button>
-        <button class="nav-tab-btn" id="tabHistoryBtn">
-          <span>⏱️</span> Completed & Time Log
-        </button>
-      </nav>
-
-      <!-- TAB 1: SCHEDULE VIEW -->
-      <div id="tabScheduleView" class="tab-view active">
-        <!-- Smart Gantt Section -->
-        <section class="flow-section">
-          <div class="gantt-wrapper">
-            <div class="gantt-time-scale" id="ganttTimeScale"></div>
-            <div class="gantt-tracks-container" id="ganttTracks"></div>
+          <div class="status-indicator-pill" id="headerStatusPill">
+            <span class="status-dot online"></span>
+            <span id="headerStatusText">Live Google Sync</span>
           </div>
-        </section>
-
-        <!-- Workload Agenda Section -->
-        <section class="agenda-section">
-          <div class="agenda-title-header">
-            <h2>Workload • Agenda</h2>
-            <p class="agenda-subtitle" id="agendaTaskCount">Loading tasks...</p>
-          </div>
-
-          <div class="agenda-cards-grid" id="agendaTimeline">
-            <!-- Dynamic Task Item Cards -->
-          </div>
-        </section>
+        </div>
+      </div>
+      
+      <!-- Glanceable Clock Widget -->
+      <div class="hub-clock-widget">
+        <div class="clock-display" id="clockTime">--:--</div>
+        <div class="date-display" id="clockDate">--</div>
       </div>
 
-      <!-- TAB 2: COMPLETED & TIME LOG VIEW -->
-      <div id="tabHistoryView" class="tab-view">
-        <section class="history-section">
-          <!-- Summary Metrics Cards -->
-          <div class="metrics-summary-grid">
-            <div class="metric-card">
-              <div class="metric-label">Completed Tasks</div>
-              <div class="metric-value" id="metricTotalCompleted">0</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-label">Total Hours Logged</div>
-              <div class="metric-value" id="metricTotalLogged">0h</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-label">Estimated Hours</div>
-              <div class="metric-value" id="metricTotalEstimated">0h</div>
-            </div>
-            <div class="metric-card">
-              <div class="metric-label">Variance</div>
-              <div class="metric-value" id="metricVariance">0h</div>
-            </div>
-          </div>
-
-          <div class="agenda-title-header" style="margin-top: 24px;">
-            <h2>Completed Tasks & Logged Hours</h2>
-            <p class="agenda-subtitle">Adjust time spent to log accurate hours for history</p>
-          </div>
-
-          <!-- Completed Tasks List -->
-          <div class="agenda-cards-grid" id="historyCardsGrid">
-            <!-- Completed Task Cards -->
-          </div>
-        </section>
-      </div>
-
-      <!-- Floating Action Buttons -->
-      <div class="bottom-action-bar">
-        <button class="floating-action-btn primary" id="openAddTaskBtn">
+      <!-- Quick Action Controls -->
+      <div class="header-actions">
+        <button class="hub-action-btn primary" id="openAddTaskBtn">
           <span>+</span> Add Task
         </button>
-        <button class="floating-action-btn secondary" id="reSolveBottomBtn">
-          ⚡ Re-Solve
+        <button class="hub-action-btn star-btn" id="openLogChoreBtn">
+          <span>⭐</span> Award Star
+        </button>
+        <button class="hub-action-btn secondary" id="rescheduleBtn" title="Re-Solve Schedule with CP-SAT">
+          <span>⚡</span> Re-Solve
+        </button>
+        <button class="hub-icon-btn" id="tabHistoryToggleBtn" title="Completed Task Log">
+          <span>⏱️</span>
+        </button>
+        <button class="hub-icon-btn" id="openSettingsBtn" title="Schedule Settings">
+          <span>⚙️</span>
         </button>
       </div>
+    </header>
 
+    <!-- OAuth Disconnected Alert Banner -->
+    <div id="googleAuthBanner" class="auth-banner hidden">
+      <div class="auth-banner-content">
+        <span class="alert-icon">⚠️</span>
+        <div>
+          <strong>Google Workspace Disconnected:</strong> OAuth token expired or revoked. Re-authenticate to resume syncing.
+        </div>
+      </div>
+      <button id="bannerAuthBtn" class="auth-banner-btn">🔑 Reconnect Google Account</button>
     </div>
+
+    <!-- MAIN VIEW: BENTO GRID DASHBOARD -->
+    <main id="mainDashboardView" class="bento-grid">
+
+      <!-- LEFT COLUMN: FOCUS & DAILY CAPACITY -->
+      <section class="bento-col-left">
+
+        <!-- TILE 1: CURRENT FOCUS / UP NEXT (HERO) -->
+        <div class="bento-tile hero-focus-tile" id="heroFocusTile">
+          <div class="tile-header">
+            <div class="badge-status-pill focus-pill" id="heroFocusBadge">
+              <span class="pulse-dot"></span>
+              <span id="heroFocusBadgeText">CURRENT FOCUS</span>
+            </div>
+            <div class="tile-time-tag" id="heroTimeRemaining">--</div>
+          </div>
+
+          <div class="hero-body">
+            <div class="hero-time-range" id="heroTimeRange">--:-- - --:--</div>
+            <h2 class="hero-task-title" id="heroTaskTitle">Loading schedule...</h2>
+            <p class="hero-task-directive" id="heroTaskDirective">Synchronizing your active workload.</p>
+          </div>
+
+          <div class="hero-actions" id="heroActionsGroup">
+            <button class="btn-hero-complete" id="heroCompleteBtn">
+              <span>✅</span> Mark Complete
+            </button>
+            <button class="btn-hero-snooze" id="heroSnoozeBtn">
+              <span>🌙</span> Snooze 1h
+            </button>
+          </div>
+        </div>
+
+        <!-- TILE 2: DAILY WORKLOAD CAPACITY -->
+        <div class="bento-tile capacity-tile" id="bentoCapacityTile">
+          <div class="tile-header">
+            <h3 class="tile-title"><span>🎯</span> Daily Focus Capacity</h3>
+            <span class="capacity-ratio-tag" id="capacityRatioTag">-- / --</span>
+          </div>
+
+          <div class="capacity-meter-wrapper">
+            <div class="capacity-meter-track">
+              <div class="capacity-meter-fill" id="capacityMeterFill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <div class="capacity-meta-row">
+            <span id="capacityMetaDetail">0 completed today</span>
+            <span class="capacity-pill-tag" id="capacitySlotsLeft">-- slots remaining</span>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- CENTER COLUMN: TODAY'S UNIFIED TIMELINE -->
+      <section class="bento-col-center">
+        <div class="bento-tile schedule-stream-tile">
+          <div class="tile-header sticky-header">
+            <div>
+              <h2 class="tile-title-main"><span>📅</span> Today's Schedule & Meetings</h2>
+              <p class="tile-subtitle" id="agendaTodaySubtitle">Loading today's agenda...</p>
+            </div>
+            <div class="schedule-stream-actions">
+              <span class="live-clock-badge" id="scheduleNowTime">--:--</span>
+            </div>
+          </div>
+
+          <!-- Chronological Stream of Meetings + Tasks -->
+          <div class="schedule-stream-list" id="agendaTimeline">
+            <!-- Dynamic Cards Inserted Here -->
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT COLUMN: FAMILY HUB & RADAR -->
+      <section class="bento-col-right">
+
+        <!-- TILE 3: KIDS CHORE STAR TRACKER -->
+        <div class="bento-tile kids-stars-tile" id="bentoKidsStars">
+          <div class="tile-header">
+            <h3 class="tile-title"><span>⭐</span> Kids Chore Stars</h3>
+            <button class="chip-add-star" id="btnQuickRewardModal">+ Reward</button>
+          </div>
+
+          <!-- Dual Kid Profiles -->
+          <div class="kids-profiles-grid" id="kidsProfilesGrid">
+            <!-- Dynamic Kid Cards (Vivaan & Vrihaan) -->
+          </div>
+
+          <!-- 7-Day Timeseries Trend Visualization -->
+          <div class="stars-timeseries-container">
+            <div class="timeseries-label">
+              <span>7-Day Star Activity</span>
+              <span class="timeseries-legend"><span class="legend-dot v1"></span>Vivaan <span class="legend-dot v2"></span>Vrihaan</span>
+            </div>
+            <div class="timeseries-chart-bars" id="kidsTimeseriesChart">
+
+              <!-- Dynamic Daily Bars -->
+            </div>
+          </div>
+
+          <!-- Recent Chore Ticker -->
+          <div class="recent-chores-ticker" id="recentChoresTicker">
+            <!-- Recent chore records -->
+          </div>
+        </div>
+
+        <!-- TILE 4: KIDS & FAMILY WEEK AHEAD RADAR -->
+        <div class="bento-tile family-radar-tile" id="bentoFamilyRadar">
+          <div class="tile-header">
+            <h3 class="tile-title"><span>👨‍👩‍👧</span> Kids & Family Week Ahead</h3>
+            <span class="badge-mini" id="familyWeekCount">0 Events</span>
+          </div>
+
+          <div class="family-radar-list" id="familyRadarList">
+            <!-- Upcoming Google Calendar Family Classes & Events -->
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- BOTTOM SHELF: 7-DAY INTERACTIVE TIMELINE (GANTT) -->
+    <section class="bento-bottom-shelf">
+      <div class="timeline-shelf-header">
+        <div class="shelf-title-group">
+          <h3><span>🗓️</span> 7-Day Visual Timeline</h3>
+          <span class="shelf-subtitle" id="ganttDateSubtitle">Scrub across the week</span>
+        </div>
+        <div class="gantt-day-tabs" id="ganttDayTabs">
+          <!-- Dynamic 7 Day Buttons -->
+        </div>
+      </div>
+
+      <div class="gantt-wrapper">
+        <div class="gantt-tracks-container" id="ganttTracks"></div>
+        <div class="gantt-time-scale" id="ganttTimeScale"></div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: COMPLETED TASKS & TIME LOG HISTORY (OVERLAY / VIEW) -->
+    <div id="tabHistoryView" class="history-view-modal modal-overlay">
+      <div class="modal-container modal-xl">
+        <div class="modal-head">
+          <h3>⏱️ Completed Tasks & Time Audit Log</h3>
+          <button class="btn-close-modal" id="closeHistoryViewBtn">✕</button>
+        </div>
+
+        <div class="metrics-summary-grid">
+          <div class="metric-card">
+            <div class="metric-label">Completed Tasks</div>
+            <div class="metric-value" id="metricTotalCompleted">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Total Hours Logged</div>
+            <div class="metric-value" id="metricTotalLogged">0h</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Estimated Hours</div>
+            <div class="metric-value" id="metricTotalEstimated">0h</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Variance</div>
+            <div class="metric-value" id="metricVariance">0h</div>
+          </div>
+        </div>
+
+        <div class="history-cards-scrollable" id="historyCardsGrid">
+          <!-- History records -->
+        </div>
+      </div>
+    </div>
+
   </div>
+
+  <!-- MODALS -->
 
   <!-- Add Task Modal -->
   <div class="modal-overlay" id="addTaskModal">
     <div class="modal-container">
       <div class="modal-head">
-        <h3>Add New Task</h3>
+        <h3>+ Add Focus Task</h3>
       </div>
       <div class="form-group">
         <label class="label-title">Task Title</label>
-        <input type="text" class="custom-input" id="newTaskTitleInput" placeholder="e.g. Schedule passport appointment">
+        <input type="text" class="custom-input" id="newTaskTitleInput" placeholder="e.g., Skateboard UPS return drop off">
       </div>
       <div class="form-group">
         <label class="label-title">Notes / Directive (Optional)</label>
-        <textarea class="custom-input custom-textarea" id="newTaskNotesInput" placeholder="Add extra context or urgency..."></textarea>
+        <textarea class="custom-input custom-textarea" id="newTaskNotesInput" placeholder="High priority, drop off before 4 PM..."></textarea>
       </div>
       <div class="modal-actions">
         <button class="btn-cancel" id="cancelAddTaskBtn">Cancel</button>
@@ -134,15 +261,60 @@
     </div>
   </div>
 
-  <!-- Settings Modal -->
+  <!-- Award Kids Star Modal -->
+  <div class="modal-overlay" id="logChoreModal">
+    <div class="modal-container">
+      <div class="modal-head">
+        <h3>⭐ Award Chore Star</h3>
+        <p class="modal-subtitle">Reward a kid for helping out or finishing practice</p>
+      </div>
+      
+      <div class="form-group">
+        <label class="label-title">Choose Kid</label>
+        <div class="kid-select-chips" id="kidSelectChips">
+          <button class="kid-chip active" data-kid="Vivaan">👦 Vivaan</button>
+          <button class="kid-chip" data-kid="Vrihaan">👦 Vrihaan</button>
+        </div>
+
+      </div>
+
+      <div class="form-group">
+        <label class="label-title">Chore / Accomplishment</label>
+        <input type="text" class="custom-input" id="choreDescriptionInput" placeholder="e.g., Cleaned up room, Practiced piano, Emptied dishwasher">
+        <div class="quick-chores-chips">
+          <button class="chore-chip" data-text="Cleaned Room">Cleaned Room</button>
+          <button class="chore-chip" data-text="Practiced Piano">Practiced Piano</button>
+          <button class="chore-chip" data-text="Finished Homework">Homework</button>
+          <button class="chore-chip" data-text="Helped with Dishes">Dishes</button>
+          <button class="chore-chip" data-text="Made Bed">Made Bed</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="label-title">Stars to Award</label>
+        <div class="stars-delta-stepper">
+          <button class="stepper-btn" id="btnMinusStar">-</button>
+          <span class="stepper-value" id="starDeltaValue">+1 ⭐</span>
+          <button class="stepper-btn" id="btnPlusStar">+</button>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-cancel" id="cancelChoreModalBtn">Cancel</button>
+        <button class="btn-submit gold-btn" id="submitChoreStarBtn">⭐ Award Stars!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Schedule Settings Modal -->
   <div class="modal-overlay" id="settingsModal">
     <div class="modal-container modal-lg">
       <div class="modal-head">
-        <h3>Schedule Settings</h3>
+        <h3>⚙️ Schedule Settings</h3>
       </div>
       <div class="form-group">
-        <label class="label-title">Active Days</label>
-        <div class="day-selector-grid" id="daySelectorGrid">
+        <label class="label-title">Active Work Days</label>
+        <div class="day-selector-grid" id="activeDaysSelector">
           <button class="day-chip" data-day="0">Mon</button>
           <button class="day-chip" data-day="1">Tue</button>
           <button class="day-chip" data-day="2">Wed</button>
@@ -183,8 +355,8 @@
   <div class="modal-overlay" id="completionModal">
     <div class="modal-container">
       <div class="modal-head">
-        <h3>Complete Task</h3>
-        <p class="agenda-subtitle" id="modalTaskTitle">Task Title</p>
+        <h3>✅ Complete Task</h3>
+        <p class="modal-subtitle" id="modalTaskTitle">Task Title</p>
       </div>
       <div class="form-group" style="margin-top: 16px;">
         <label class="label-title">Actual Time Spent (Minutes)</label>
@@ -198,11 +370,34 @@
       </div>
       <div class="modal-actions">
         <button class="btn-cancel" id="cancelModalBtn">Cancel</button>
-        <button class="btn-submit" id="confirmCompleteBtn">Mark Complete</button>
+        <button class="btn-submit" id="confirmCompleteBtn">Log & Complete</button>
       </div>
     </div>
   </div>
 
-  <script src="app.js?v=5"></script>
+  <!-- OAuth Re-Authenticate Modal -->
+  <div class="modal-overlay" id="authModal">
+    <div class="modal-container modal-lg">
+      <div class="modal-head">
+        <h3>🔑 Reconnect Google Account</h3>
+        <p class="modal-subtitle" id="authModalMessage">Your Google OAuth token has expired or been revoked. Please re-authenticate to sync Google Tasks and Google Calendar.</p>
+      </div>
+      <div class="form-group" style="margin-top: 16px;">
+        <button class="btn-submit" id="btnLaunchOAuth" style="width: 100%; padding: 14px; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; background: #2563eb;">
+          <span>🌐</span> Authorize with Google Account
+        </button>
+      </div>
+      <div class="form-group" style="margin-top: 16px; border-top: 1px dashed var(--border-light); padding-top: 12px;">
+        <label class="label-title">Or paste Authorization Code / URL (Headless / Fridge Mode)</label>
+        <input type="text" class="custom-input" id="authCodeInput" placeholder="Paste Google Auth Code here...">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" id="cancelAuthBtn">Close</button>
+        <button class="btn-submit" id="submitAuthCodeBtn">Submit Code & Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=7"></script>
 </body>
 </html>

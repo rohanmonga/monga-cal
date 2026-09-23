@@ -29,6 +29,9 @@ class GoogleServicesManager:
         self.tasks_service = None
         self.calendar_service = None
         self.tasks_list_id = None
+        self.auth_error: Optional[str] = None
+        self._active_flow: Optional[InstalledAppFlow] = None
+        self._code_verifier: Optional[str] = None
         
         try:
             self.tz_info = ZoneInfo(config.google.timezone)
@@ -50,40 +53,137 @@ class GoogleServicesManager:
         self._events_cache = None
         self._events_cache_key = None
 
-    def _authenticate(self):
+    def _authenticate(self, force: bool = False):
+        if self._connected and self.creds and self.creds.valid and not force:
+            return
+
+        self.auth_error = None
         if os.path.exists("token.json"):
             try:
                 self.creds = Credentials.from_authorized_user_file("token.json", SCOPES)
             except Exception as e:
                 logger.warning(f"Failed to load token.json: {e}")
+                self.auth_error = f"Failed to load token.json: {e}"
 
-        if not self.creds or not self.creds.valid:
-            if self.creds and self.creds.expired and self.creds.refresh_token:
+        if self.creds and not self.creds.valid:
+            if self.creds.expired and self.creds.refresh_token:
                 try:
                     self.creds.refresh(Request())
                     with open("token.json", "w") as token:
                         token.write(self.creds.to_json())
+                    self.auth_error = None
                 except Exception as e:
                     logger.warning(f"Failed to refresh OAuth token: {e}")
+                    self.auth_error = f"OAuth token expired or revoked ({e}). Please re-authenticate."
                     self.creds = None
+                    try:
+                        if os.path.exists("token.json"):
+                            os.rename("token.json", "token.json.expired")
+                    except Exception:
+                        pass
+            else:
+                self.auth_error = "OAuth token invalid or missing refresh token."
+                self.creds = None
+        elif not self.creds:
+            self.auth_error = "No token.json found. Please authenticate with Google."
 
         if self.creds and self.creds.valid:
             try:
                 self.tasks_service = build("tasks", "v1", credentials=self.creds)
                 self.calendar_service = build("calendar", "v3", credentials=self.creds)
                 self._connected = True
+                self.auth_error = None
                 logger.info("Connected to Google Tasks & Google Calendar APIs successfully.")
             except Exception as e:
                 logger.error(f"Error building Google API clients: {e}")
                 self._connected = False
+                self.auth_error = f"Error connecting to Google APIs: {e}"
         else:
-            logger.warning("No valid Google OAuth credentials found. Operating in fallback mode.")
             self._connected = False
+
+    def get_authorization_url(self, redirect_uri: str) -> Optional[str]:
+        if not os.path.exists("credentials.json"):
+            logger.error("credentials.json not found in workspace root.")
+            return None
+
+        try:
+            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES, redirect_uri=redirect_uri)
+            auth_url, state = flow.authorization_url(prompt="consent", access_type="offline", include_granted_scopes="true")
+            self._active_flow = flow
+            self._code_verifier = getattr(flow, "code_verifier", None)
+
+            state_data = {
+                "code_verifier": self._code_verifier,
+                "redirect_uri": redirect_uri,
+                "state": state,
+                "created_at": time.time()
+            }
+            try:
+                with open(".oauth_state.json", "w") as f:
+                    json.dump(state_data, f)
+            except Exception as ex:
+                logger.warning(f"Failed to persist .oauth_state.json: {ex}")
+
+            logger.info("Generated Google OAuth authorization URL with persisted PKCE verifier.")
+            return auth_url
+        except Exception as e:
+            logger.error(f"Error generating OAuth authorization URL: {e}")
+            return None
+
+    def complete_oauth_flow(self, code: str, redirect_uri: Optional[str] = None) -> bool:
+        if not os.path.exists("credentials.json"):
+            logger.error("credentials.json not found in workspace root.")
+            return False
+
+        try:
+            saved_verifier = self._code_verifier
+            saved_redirect_uri = redirect_uri or "http://localhost:8000/api/auth/callback"
+
+            if os.path.exists(".oauth_state.json"):
+                try:
+                    with open(".oauth_state.json", "r") as f:
+                        saved_state = json.load(f)
+                        saved_verifier = saved_state.get("code_verifier") or saved_verifier
+                        saved_redirect_uri = saved_state.get("redirect_uri") or saved_redirect_uri
+                except Exception as ex:
+                    logger.warning(f"Failed to load .oauth_state.json: {ex}")
+
+            flow = self._active_flow
+            if not flow:
+                flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES, redirect_uri=saved_redirect_uri)
+            elif saved_redirect_uri:
+                flow.redirect_uri = saved_redirect_uri
+
+            if saved_verifier:
+                flow.code_verifier = saved_verifier
+
+            flow.fetch_token(code=code)
+            self.creds = flow.credentials
+            with open("token.json", "w") as token:
+                token.write(self.creds.to_json())
+
+            try:
+                if os.path.exists(".oauth_state.json"):
+                    os.remove(".oauth_state.json")
+            except Exception:
+                pass
+
+            self.invalidate_cache()
+            self._authenticate(force=True)
+            logger.info("Successfully re-authenticated with Google OAuth and saved fresh token.json!")
+            return self._connected
+        except Exception as e:
+            logger.error(f"Error completing OAuth flow: {e}")
+            self.auth_error = f"Failed to exchange OAuth code: {e}"
+            return False
 
     def add_custom_task(self, task: Task) -> str:
         self.invalidate_cache()
+        if not self._connected:
+            self._authenticate()
+
         if not self._connected or not self.tasks_service:
-            self._custom_tasks.append(task)
+            logger.error(f"Cannot add task '{task.title}': Google Tasks API is not connected ({self.auth_error})")
             return task.id
 
         list_id = self.get_or_create_monga_list_id()
@@ -98,15 +198,18 @@ class GoogleServicesManager:
             return new_id
         except Exception as e:
             logger.error(f"Error creating Google Task: {e}")
-            self._custom_tasks.append(task)
             return task.id
 
     def get_or_create_monga_list_id(self) -> str:
         if self.tasks_list_id:
             return self.tasks_list_id
 
+        if not self._connected:
+            self._authenticate()
+
         if not self._connected or not self.tasks_service:
-            return "mock-list-id"
+            logger.error(f"Cannot get/create Google Tasks list: Google API not connected ({self.auth_error})")
+            return "@default"
 
         target_name = config.google.tasks_list_name
         try:
@@ -132,8 +235,12 @@ class GoogleServicesManager:
             logger.info(f"Returning cached Google Tasks ({len(self._tasks_cache)} tasks, age: {int(now_time - self._tasks_cache_time)}s)")
             return self._tasks_cache
 
+        if not self._connected:
+            self._authenticate()
+
         if not self._connected or not self.tasks_service:
-            return self._custom_tasks
+            logger.error(f"Cannot fetch Google Tasks: Google API not connected ({self.auth_error})")
+            return []
 
         list_id = self.get_or_create_monga_list_id()
         tasks: List[Task] = []
@@ -172,11 +279,14 @@ class GoogleServicesManager:
             self._tasks_cache_time = now_time
         except Exception as e:
             logger.error(f"Error fetching Google Tasks from list '{config.google.tasks_list_name}': {e}")
-            return self._custom_tasks
+            return []
 
         return tasks
 
     def sync_completed_tasks_from_google(self, db) -> int:
+        if not self._connected:
+            self._authenticate()
+
         if not self._connected or not self.tasks_service:
             return 0
 
@@ -226,7 +336,11 @@ class GoogleServicesManager:
             logger.info(f"Returning cached Google Calendar events ({len(self._events_cache)} events)")
             return self._events_cache
 
+        if not self._connected:
+            self._authenticate()
+
         if not self._connected or not self.calendar_service:
+            logger.error(f"Cannot fetch Google Calendar events: Google API not connected ({self.auth_error})")
             return []
 
         slots: List[CalendarSlot] = []
@@ -255,17 +369,28 @@ class GoogleServicesManager:
                     try:
                         dtstart = datetime.fromisoformat(start.replace("Z", "+00:00"))
                         dtend = datetime.fromisoformat(end.replace("Z", "+00:00"))
+
+                        if dtstart.tzinfo:
+                            dtstart = dtstart.astimezone(self.tz_info).replace(tzinfo=None)
+                        else:
+                            dtstart = datetime.combine(dtstart.date(), datetime.min.time())
+
+                        if dtend.tzinfo:
+                            dtend = dtend.astimezone(self.tz_info).replace(tzinfo=None)
+                        else:
+                            dtend = datetime.combine(dtend.date(), datetime.max.time())
+
                         slots.append(
                             CalendarSlot(
                                 start=dtstart,
                                 end=dtend,
                                 is_fixed=True,
-                                title=summary,
+                                title=summary or "Calendar Event",
                                 event_uid=event.get("id"),
                             )
                         )
-                    except Exception:
-                        pass
+                    except Exception as ex:
+                        logger.warning(f"Error parsing fixed event '{summary}': {ex}")
 
             self._events_cache = slots
             self._events_cache_key = cache_key
@@ -278,10 +403,15 @@ class GoogleServicesManager:
         return slots
 
     def sync_scheduled_blocks(self, blocks: List[ScheduledBlock]) -> bool:
-        if not self._connected or not self.calendar_service:
-            logger.info("Mock mode: skipping Google Calendar block sync.")
-            return True
+        """NATIVE GOOGLE API BATCH SYNC: Combines all differential operations into rate-limited chunks."""
+        if not self._connected:
+            self._authenticate()
 
+        if not self._connected or not self.calendar_service:
+            logger.error(f"Cannot sync schedule blocks to Google Calendar: Google API not connected ({self.auth_error})")
+            return False
+
+        t0 = time.time()
         try:
             start_search = datetime.now() - timedelta(days=1)
             end_search = datetime.now() + timedelta(days=14)
@@ -294,28 +424,33 @@ class GoogleServicesManager:
             ).execute()
 
             existing_events = events_result.get("items", [])
-            old_block_ids = []
+            existing_by_task_id: Dict[str, Dict[str, Any]] = {}
             for ev in existing_events:
+                priv = ev.get("extendedProperties", {}).get("private", {})
+                t_id = priv.get("monga_task_id")
                 summary = ev.get("summary", "")
-                priv_props = ev.get("extendedProperties", {}).get("private", {})
-                if summary.startswith(MONGA_BLOCK_PREFIX) or priv_props.get("monga_block") == "true":
-                    old_block_ids.append(ev["id"])
+                if t_id:
+                    existing_by_task_id[t_id] = ev
+                elif summary.startswith(MONGA_BLOCK_PREFIX):
+                    existing_by_task_id[summary] = ev
 
-            created_event_ids = []
+            tasks_to_run = []
+            matched_task_ids = set()
+
             for b in blocks:
                 summary = f"{MONGA_BLOCK_PREFIX}{b.task_title}"
-                start_dt_local = b.start
-                end_dt_local = b.end
+                matched_task_ids.add(b.task_id)
+                existing_ev = existing_by_task_id.get(b.task_id) or existing_by_task_id.get(summary)
 
                 event_body = {
                     "summary": summary,
                     "description": f"Scheduled by Monga Cal AI.\nPriority Score: {b.priority_score}\nEnergy: {b.energy}\nDirective: {b.manager_directive}",
                     "start": {
-                        "dateTime": start_dt_local.isoformat(),
+                        "dateTime": b.start.isoformat(),
                         "timeZone": config.google.timezone
                     },
                     "end": {
-                        "dateTime": end_dt_local.isoformat(),
+                        "dateTime": b.end.isoformat(),
                         "timeZone": config.google.timezone
                     },
                     "extendedProperties": {
@@ -325,35 +460,63 @@ class GoogleServicesManager:
                         }
                     }
                 }
-                res = self.calendar_service.events().insert(
-                    calendarId=config.google.calendar_id,
-                    body=event_body
-                ).execute()
-                if res.get("id"):
-                    created_event_ids.append(res["id"])
 
-            deleted_count = 0
-            for old_id in old_block_ids:
-                if old_id not in created_event_ids:
-                    try:
-                        self.calendar_service.events().delete(
-                            calendarId=config.google.calendar_id,
-                            eventId=old_id
-                        ).execute()
-                        deleted_count += 1
-                    except Exception as ex:
-                        logger.warning(f"Error deleting old Google Calendar block {old_id}: {ex}")
+                if existing_ev:
+                    ex_id = existing_ev["id"]
+                    ex_start = existing_ev.get("start", {}).get("dateTime", "")
+                    ex_end = existing_ev.get("end", {}).get("dateTime", "")
 
-            logger.info(f"Atomic Sync: Created {len(created_event_ids)} new blocks & purged {deleted_count} old blocks on Google Calendar.")
+                    if ex_start.startswith(b.start.isoformat()[:16]) and ex_end.startswith(b.end.isoformat()[:16]):
+                        continue
+                    else:
+                        tasks_to_run.append(("patch", ex_id, event_body))
+                else:
+                    tasks_to_run.append(("insert", None, event_body))
+
+            for key, ev in existing_by_task_id.items():
+                priv = ev.get("extendedProperties", {}).get("private", {})
+                t_id = priv.get("monga_task_id")
+                if t_id and t_id not in matched_task_ids:
+                    tasks_to_run.append(("delete", ev["id"], None))
+
+            if not tasks_to_run:
+                logger.info(f"Differential Batch Sync: All {len(blocks)} blocks up to date on Google Calendar. (0 API calls made in {round(time.time() - t0, 3)}s)")
+                return True
+
+            def batch_callback(request_id, response, exception):
+                if exception is not None:
+                    logger.warning(f"Batch request #{request_id} error: {exception}")
+
+            chunk_size = 5
+            for i in range(0, len(tasks_to_run), chunk_size):
+                chunk = tasks_to_run[i:i + chunk_size]
+                batch = self.calendar_service.new_batch_http_request(callback=batch_callback)
+                for idx, (op_type, ev_id, body) in enumerate(chunk):
+                    if op_type == "insert":
+                        req = self.calendar_service.events().insert(calendarId=config.google.calendar_id, body=body)
+                    elif op_type == "patch":
+                        req = self.calendar_service.events().patch(calendarId=config.google.calendar_id, eventId=ev_id, body=body)
+                    elif op_type == "delete":
+                        req = self.calendar_service.events().delete(calendarId=config.google.calendar_id, eventId=ev_id)
+                    batch.add(req, request_id=str(i + idx))
+                batch.execute()
+                if i + chunk_size < len(tasks_to_run):
+                    time.sleep(0.3)
+
+            logger.info(f"Native Google API Batch Sync: Executed {len(tasks_to_run)} operations for {len(blocks)} blocks in {round(time.time() - t0, 3)}s.")
             return True
         except Exception as e:
-            logger.error(f"Error syncing blocks to Google Calendar: {e}")
+            logger.error(f"Error executing native Google API batch sync: {e}")
             return False
 
     def mark_task_complete(self, task_id: str) -> bool:
         self.invalidate_cache()
+        if not self._connected:
+            self._authenticate()
+
         if not self._connected or not self.tasks_service:
-            return True
+            logger.error(f"Cannot mark task complete: Google API not connected ({self.auth_error})")
+            return False
 
         list_id = self.get_or_create_monga_list_id()
         try:

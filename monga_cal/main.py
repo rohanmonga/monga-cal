@@ -5,13 +5,15 @@ from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional, List
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from monga_cal.daemon import daemon_service
-from monga_cal.models import TaskCompletionRecord, SchedulePlan, Task, ScheduleSettingsRequest
+from monga_cal.models import TaskCompletionRecord, SchedulePlan, ScheduledBlock, Task, ScheduleSettingsRequest, KidStarRequest
 from monga_cal.config import config, save_config
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,9 +75,73 @@ class PriorityOverrideRequest(BaseModel):
 class UpdateLoggedHoursRequest(BaseModel):
     actual_minutes: int
 
+class OAuthExchangeRequest(BaseModel):
+    code: str
+    redirect_uri: Optional[str] = "http://localhost:8000/api/auth/callback"
+
 @app.get("/api/status")
 def get_status():
-    return daemon_service.status.model_dump(mode="json")
+    st = daemon_service.status.model_dump(mode="json")
+    st["google_connected"] = daemon_service.gservices._connected
+    st["google_auth_error"] = daemon_service.gservices.auth_error
+    st["has_client_secrets"] = os.path.exists("credentials.json")
+    return st
+
+@app.get("/api/auth/url")
+def get_auth_url(redirect_uri: str = "http://localhost:8000/api/auth/callback"):
+    url = daemon_service.gservices.get_authorization_url(redirect_uri=redirect_uri)
+    if not url:
+        raise HTTPException(status_code=400, detail="credentials.json not found in project workspace root.")
+    return {"auth_url": url, "redirect_uri": redirect_uri}
+
+@app.post("/api/auth/exchange")
+async def exchange_oauth_code(req: OAuthExchangeRequest, background_tasks: BackgroundTasks):
+    code = req.code.strip()
+    if "code=" in code:
+        import urllib.parse
+        parsed = urllib.parse.urlparse(code)
+        params = urllib.parse.parse_qs(parsed.query)
+        if "code" in params:
+            code = params["code"][0]
+        else:
+            try:
+                code = code.split("code=")[1].split("&")[0]
+                code = urllib.parse.unquote(code)
+            except Exception:
+                pass
+
+    redirect_uri = req.redirect_uri or "http://localhost:8000/api/auth/callback"
+    success = daemon_service.gservices.complete_oauth_flow(code, redirect_uri)
+    if not success:
+        raise HTTPException(status_code=400, detail=daemon_service.gservices.auth_error or "Failed to exchange authorization code.")
+    
+    background_tasks.add_task(daemon_service.run_sync_cycle, True)
+    return {"message": "Successfully re-authenticated with Google OAuth!", "status": get_status()}
+
+
+@app.get("/api/auth/callback", response_class=HTMLResponse)
+async def oauth_callback(code: Optional[str] = None, error: Optional[str] = None):
+    if error:
+        return f"""<html><body style="font-family:sans-serif; text-align:center; padding:50px;">
+        <h2>❌ Google Authorization Failed</h2><p>{error}</p>
+        <a href="/">Return to Dashboard</a></body></html>"""
+    
+    if code:
+        redirect_uri = "http://localhost:8000/api/auth/callback"
+        success = daemon_service.gservices.complete_oauth_flow(code, redirect_uri)
+        if success:
+            return """<html><body style="font-family:sans-serif; text-align:center; padding:50px; background:#f4f0e8;">
+            <h2 style="color:#065f46;">✅ Google Account Reconnected Successfully!</h2>
+            <p style="color:#7d7268;">Fresh credentials saved to token.json. Redirecting to dashboard...</p>
+            <script>setTimeout(() => { window.location.href = '/'; }, 2000);</script>
+            </body></html>"""
+        else:
+            err_detail = daemon_service.gservices.auth_error or "Unknown error"
+            return f"""<html><body style="font-family:sans-serif; text-align:center; padding:50px;">
+            <h2>❌ Token Exchange Failed</h2><p>{err_detail}</p>
+            <a href="/">Return to Dashboard</a></body></html>"""
+
+    return """<html><body><a href="/">Return to Dashboard</a></body></html>"""
 
 @app.get("/api/config")
 def get_config():
@@ -137,55 +203,61 @@ async def get_today_schedule():
         if b.get("start", "").startswith(today_str)
     ]
     return {
-        "status": daemon_service.status.model_dump(mode="json"),
+        "status": get_status(),
         "today_blocks": today_blocks,
         "config": get_config(),
     }
 
 @app.get("/api/plan")
-async def get_plan():
+async def get_plan(force_solve: bool = False):
+    existing_plan_raw = daemon_service.db.get_latest_plan()
     now = datetime.now()
     start_dt = datetime.combine(now.date(), datetime.min.time())
     end_dt = start_dt + timedelta(days=14)
-
-    raw_tasks = daemon_service.gservices.fetch_tasks()
     fixed_events = daemon_service.gservices.fetch_fixed_events(start_dt, end_dt)
-    
-    tasks = []
-    for t in raw_tasks:
-        t.deferred_until = daemon_service.db.get_deferred_until(t.id)
-        tasks.append(t)
 
-    estimated_tasks = daemon_service.ai.estimate_tasks_batch(tasks)
-    
-    # Enforce that user explicit priority overrides take precedence over AI estimates
+    if not force_solve and existing_plan_raw:
+        raw_tasks = daemon_service.gservices.fetch_tasks()
+        tasks = []
+        for t in raw_tasks:
+            t.deferred_until = daemon_service.db.get_deferred_until(t.id)
+            tasks.append(t)
+
+        estimated_tasks = daemon_service.ai.estimate_tasks_batch(tasks)
+        for et in estimated_tasks:
+            saved_prio = daemon_service.db.get_priority_override(et.id)
+            if saved_prio:
+                et.priority_score = max(1, min(5, saved_prio))
+
+        blocks = [ScheduledBlock(**b) for b in existing_plan_raw]
+        completed_today = daemon_service.db.get_completed_count_today()
+        
+        return {
+            "status": get_status(),
+            "tasks": [t.model_dump(mode="json") for t in estimated_tasks],
+            "schedule": SchedulePlan(
+                blocks=blocks,
+                fixed_events=fixed_events,
+                solver_stats={
+                    "status": "STABLE_PRESERVED",
+                    "max_tasks_per_day": config.scheduler.max_tasks_per_day,
+                    "completed_today_count": completed_today
+                }
+            ).model_dump(mode="json"),
+            "config": get_config(),
+        }
+
+    plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
+    raw_tasks = daemon_service.gservices.fetch_tasks()
+    estimated_tasks = daemon_service.ai.estimate_tasks_batch(raw_tasks)
+
     for et in estimated_tasks:
         saved_prio = daemon_service.db.get_priority_override(et.id)
         if saved_prio:
             et.priority_score = max(1, min(5, saved_prio))
-        else:
-            if et.priority_score > 5:
-                et.priority_score = 3
-            et.priority_score = max(1, min(5, et.priority_score))
-
-    completed_today = daemon_service.db.get_completed_count_today()
-    plan = daemon_service.scheduler.solve(
-        estimated_tasks,
-        fixed_events,
-        start_time=now,
-        completed_today_count=completed_today
-    )
-    for b in plan.blocks:
-        saved_prio = daemon_service.db.get_priority_override(b.task_id)
-        if saved_prio:
-            b.priority_score = max(1, min(5, saved_prio))
-        else:
-            if b.priority_score > 5:
-                b.priority_score = 3
-            b.priority_score = max(1, min(5, b.priority_score))
 
     return {
-        "status": daemon_service.status.model_dump(mode="json"),
+        "status": get_status(),
         "tasks": [t.model_dump(mode="json") for t in estimated_tasks],
         "schedule": plan.model_dump(mode="json"),
         "config": get_config(),
@@ -213,7 +285,23 @@ async def update_logged_hours(record_id: int, req: UpdateLoggedHoursRequest):
     logger.info(f"Updated completed task #{record_id} logged time to {req.actual_minutes}m")
     return {"message": f"Updated record #{record_id} logged time to {req.actual_minutes} minutes"}
 
+@app.get("/api/kids/stars")
+async def get_kids_stars():
+    return daemon_service.db.get_kids_star_summary()
+
+@app.post("/api/kids/stars")
+async def award_kid_star(req: KidStarRequest):
+    summary = daemon_service.db.add_kid_star(req.kid_name, req.delta, req.chore or "")
+    logger.info(f"Awarded {req.delta} star(s) to {req.kid_name} for '{req.chore or 'general chore'}'")
+    return summary
+
+@app.delete("/api/kids/stars/{star_id}")
+async def delete_kid_star(star_id: int):
+    daemon_service.db.delete_kid_star(star_id)
+    return daemon_service.db.get_kids_star_summary()
+
 @app.post("/api/tasks")
+
 async def add_task(req: AddTaskRequest, background_tasks: BackgroundTasks):
     import uuid
     new_task = Task(
@@ -276,11 +364,11 @@ async def complete_task(req: TaskCompletionRequest, background_tasks: Background
     daemon_service.db.record_completion(record)
     logger.info(f"Recorded completion for task '{req.title}' (actual: {req.actual_minutes}m)")
     
-    daemon_service.gservices.mark_task_complete(req.task_id)
     daemon_service.gservices._custom_tasks = [
         t for t in daemon_service.gservices._custom_tasks if t.id != req.task_id
     ]
-    
+
+    background_tasks.add_task(daemon_service.gservices.mark_task_complete, req.task_id)
     background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": "Task completion recorded & reschedule triggered", "record": record.model_dump(mode="json")}
 

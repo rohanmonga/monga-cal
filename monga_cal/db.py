@@ -2,8 +2,9 @@ import os
 import json
 import logging
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -104,6 +105,15 @@ class Database:
                     value_json TEXT NOT NULL,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS kid_stars (
+                    id SERIAL PRIMARY KEY,
+                    kid_name TEXT NOT NULL,
+                    stars_delta INTEGER NOT NULL DEFAULT 1,
+                    chore_description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_kid_stars ON kid_stars(kid_name, created_at);
             """)
             cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'General';")
             cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS category_icon TEXT DEFAULT '📌';")
@@ -122,7 +132,16 @@ class Database:
                     manager_directive TEXT,
                     reasoning TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
+                );
+
+                CREATE TABLE IF NOT EXISTS kid_stars (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kid_name TEXT NOT NULL,
+                    stars_delta INTEGER NOT NULL DEFAULT 1,
+                    chore_description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_kid_stars ON kid_stars(kid_name, created_at);
             """)
             try:
                 cursor.execute("ALTER TABLE estimate_cache ADD COLUMN category TEXT DEFAULT 'General'")
@@ -137,6 +156,7 @@ class Database:
             except Exception:
                 pass
             conn.commit()
+
 
         conn.close()
         logger.info(f"Database initialized successfully (Engine: {'PostgreSQL' if self.is_postgres else 'SQLite'})")
@@ -347,6 +367,106 @@ class Database:
             VALUES (?, ?)
         """
         self._execute(sql, (plan_hash, json.dumps(plan_data)), commit=True)
+
+    def add_kid_star(self, kid_name: str, delta: int = 1, chore_description: str = "") -> Dict[str, Any]:
+        sql = """
+            INSERT INTO kid_stars (kid_name, stars_delta, chore_description, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        """
+        self._execute(sql, (kid_name.strip(), delta, chore_description.strip()), commit=True)
+        return self.get_kids_star_summary()
+
+    def delete_kid_star(self, star_id: int) -> bool:
+        sql = "DELETE FROM kid_stars WHERE id = ?"
+        self._execute(sql, (star_id,), commit=True)
+        return True
+
+    def get_kids_star_summary(self, default_kids: Optional[List[str]] = None) -> Dict[str, Any]:
+        if default_kids is None:
+            default_kids = ["Vivaan", "Vrihaan"]
+
+
+        # 1. Total stars per kid
+        totals_sql = """
+            SELECT kid_name, COALESCE(SUM(stars_delta), 0) as total_stars
+            FROM kid_stars
+            GROUP BY kid_name
+        """
+        totals_rows = self._execute(totals_sql, fetchall=True) or []
+        totals_map = {row["kid_name"]: row["total_stars"] for row in totals_rows}
+
+        for k in default_kids:
+            if k not in totals_map:
+                totals_map[k] = 0
+
+        # 2. Today's stars earned per kid
+        today_start = datetime.combine(date.today(), datetime.min.time())
+        today_sql = """
+            SELECT kid_name, COALESCE(SUM(stars_delta), 0) as today_stars
+            FROM kid_stars
+            WHERE created_at >= ?
+            GROUP BY kid_name
+        """
+        today_rows = self._execute(today_sql, (today_start,), fetchall=True) or []
+        today_map = {row["kid_name"]: row["today_stars"] for row in today_rows}
+
+        # 3. 7-day daily timeseries per kid
+        daily_timeseries = {}
+        day_keys = []
+        for d in range(6, -1, -1):
+            day_date = date.today() - timedelta(days=d)
+            day_str = day_date.strftime("%a %m/%d")
+            day_keys.append(day_str)
+
+        for kid in totals_map.keys():
+            daily_timeseries[kid] = {dk: 0 for dk in day_keys}
+
+        timeseries_start = datetime.combine(date.today() - timedelta(days=6), datetime.min.time())
+        ts_sql = """
+            SELECT kid_name, date(created_at) as log_date, COALESCE(SUM(stars_delta), 0) as day_stars
+            FROM kid_stars
+            WHERE created_at >= ?
+            GROUP BY kid_name, date(created_at)
+            ORDER BY log_date ASC
+        """
+        ts_rows = self._execute(ts_sql, (timeseries_start,), fetchall=True) or []
+        for r in ts_rows:
+            k = r["kid_name"]
+            try:
+                dt_obj = datetime.strptime(str(r["log_date"])[:10], "%Y-%m-%d").date()
+                d_key = dt_obj.strftime("%a %m/%d")
+                if k in daily_timeseries and d_key in daily_timeseries[k]:
+                    daily_timeseries[k][d_key] = r["day_stars"]
+            except Exception:
+                pass
+
+        # 4. Recent chore history log
+        history_sql = """
+            SELECT id, kid_name, stars_delta, chore_description, created_at
+            FROM kid_stars
+            ORDER BY created_at DESC
+            LIMIT 20
+        """
+        hist_rows = self._execute(history_sql, fetchall=True) or []
+        history = [dict(r) for r in hist_rows]
+
+        kids_data = []
+        for kid_name in default_kids + [k for k in totals_map.keys() if k not in default_kids]:
+            total = totals_map.get(kid_name, 0)
+            ts_values = list(daily_timeseries.get(kid_name, {}).values())
+            kids_data.append({
+                "kid_name": kid_name,
+                "total_stars": total,
+                "today_stars": today_map.get(kid_name, 0),
+                "timeseries_days": day_keys,
+                "timeseries_values": ts_values
+            })
+
+        return {
+            "kids": kids_data,
+            "recent_history": history
+        }
+
 
     def _execute(
         self,

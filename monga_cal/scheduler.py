@@ -311,4 +311,5 @@ class Scheduler:
             "objective_value": int(solver.ObjectiveValue()) if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else 0,
         }
 
-        return SchedulePlan(blocks=blocks, unscheduled_task_ids=unscheduled_ids, solver_stats=stats)
+        return SchedulePlan(blocks=blocks, fixed_events=fixed_events, unscheduled_task_ids=unscheduled_ids, solver_stats=stats)
+

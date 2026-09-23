@@ -6,7 +6,10 @@ ENV/
 # Secrets & OAuth Credentials
 credentials.json
 token.json
+token.json.*
+.oauth_state.json
 .env
+
 
 # SQLite Database
 monga_cal.db
