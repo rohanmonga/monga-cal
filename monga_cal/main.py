@@ -46,7 +46,7 @@ cors_origins = [
     "http://localhost:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "http://192.168.1.73:8000",
+    "http://192.168.86.32:8000",
 ]
 
 app.add_middleware(
@@ -78,6 +78,9 @@ class UpdateLoggedHoursRequest(BaseModel):
 class OAuthExchangeRequest(BaseModel):
     code: str
     redirect_uri: Optional[str] = "http://localhost:8000/api/auth/callback"
+
+class TaskDueUpdateRequest(BaseModel):
+    due: Optional[str] = None
 
 @app.get("/api/status")
 def get_status():
@@ -333,6 +336,15 @@ async def update_task_priority(task_id: str, req: PriorityOverrideRequest):
     daemon_service.gservices.invalidate_cache()
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {"message": f"Task priority updated to P{prio}", "task_id": task_id, "priority_score": prio, "schedule": plan.model_dump(mode="json")}
+
+@app.post("/api/tasks/{task_id}/due")
+async def update_task_due(task_id: str, req: TaskDueUpdateRequest):
+    success = daemon_service.gservices.update_task_due(task_id, req.due)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update due date in Google Tasks")
+    daemon_service.gservices.invalidate_cache()
+    plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
+    return {"message": f"Task due date updated to {req.due}", "task_id": task_id, "due": req.due, "schedule": plan.model_dump(mode="json")}
 
 @app.post("/api/tasks/{task_id}/defer")
 async def defer_task(task_id: str, days: int = Query(default=1)):

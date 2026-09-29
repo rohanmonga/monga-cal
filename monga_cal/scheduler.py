@@ -246,6 +246,17 @@ class Scheduler:
             model.Add(earlier_score == 0).OnlyEnforceIf(is_sched.Not())
             objective_terms.append(earlier_score)
 
+            # EXPLICIT DEADLINE ENFORCEMENT: Heavily penalize scheduling past the task's due date
+            if t.due and t_due:
+                due_eod = datetime.combine(t_due.date(), datetime.max.time().replace(microsecond=0))
+                late_slot_indices = [i for i, s_dt in enumerate(slots) if s_dt > due_eod]
+                if late_slot_indices:
+                    first_late_idx = min(late_slot_indices)
+                    is_late = model.NewBoolVar(f"late_{t_id}")
+                    model.Add(start_var >= first_late_idx).OnlyEnforceIf(is_late)
+                    model.Add(start_var < first_late_idx).OnlyEnforceIf(is_late.Not())
+                    objective_terms.append(-50000 * is_late)
+
             # HIGH-ENERGY WINDOW BOOST (Linear scoring, 1 BoolVar per task!)
             if t.energy == "high":
                 high_slot_indices = [

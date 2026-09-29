@@ -359,7 +359,6 @@ async function fetchPlan() {
     renderCurrentFocusHero();
     renderCapacityMeter();
     renderScheduleStream();
-    renderFamilyWeekAhead();
     renderGanttChart();
   } catch (err) {
     console.error('Error fetching plan:', err);
@@ -471,8 +470,19 @@ function renderCurrentFocusHero() {
       if (heroTimeRemaining) heroTimeRemaining.textContent = `${minsLeft}m left`;
     }
 
+    const activeTask = taskMap.get(activeItem.task_id);
+    let dueInfo = '';
+    if (activeTask && activeTask.due) {
+      try {
+        const dueDt = new Date(activeTask.due);
+        const dueStr = dueDt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const isOverdue = dueDt < new Date();
+        dueInfo = ` <span style="font-size: 13px; color:${isOverdue ? '#f87171' : '#60a5fa'}; font-weight:700;">📅 Due ${dueStr}</span>`;
+      } catch (e) {}
+    }
+
     if (heroTimeRange) heroTimeRange.textContent = `${fmtTime(dtStart)} - ${fmtTime(dtEnd)}`;
-    if (heroTaskTitle) heroTaskTitle.textContent = activeItem.title;
+    if (heroTaskTitle) heroTaskTitle.innerHTML = `${escapeHtml(activeItem.title)}${dueInfo}`;
     if (heroTaskDirective) heroTaskDirective.textContent = activeItem.directive;
 
     if (heroActionsGroup) {
@@ -624,6 +634,16 @@ function renderScheduleStream() {
       const prioScore = t.priority_score || b.priority_score || 3;
       const prioLabel = prioScore === 1 ? 'P1 Urgent' : (prioScore === 2 ? 'P2 High' : 'P3 Focus');
 
+      let dueBadge = '';
+      if (t.due) {
+        try {
+          const dueDt = new Date(t.due);
+          const dueStr = dueDt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const isOverdue = dueDt < new Date();
+          dueBadge = `<span class="stream-card-badge ${isOverdue ? 'badge-due-overdue' : 'badge-due'}">📅 Due ${dueStr}</span>`;
+        } catch (e) {}
+      }
+
       card.innerHTML = `
         <div class="stream-card-left">
           <div class="stream-card-time">${fmtTime(item.start)}<br>${fmtTime(item.end)}</div>
@@ -633,6 +653,7 @@ function renderScheduleStream() {
               <span class="stream-card-title">${escapeHtml(t.title)}</span>
               <span class="stream-card-badge badge-focus">${escapeHtml(t.category || 'Focus')}</span>
               <span class="stream-card-badge badge-prio">${prioLabel}</span>
+              ${dueBadge}
             </div>
             <div class="stream-card-directive">${escapeHtml(t.manager_directive || b.manager_directive || 'Scheduled focus block')}</div>
           </div>
@@ -650,54 +671,6 @@ function renderScheduleStream() {
     }
 
     timeline.appendChild(card);
-  });
-}
-
-/* ===================================================
-   KIDS & FAMILY WEEK AHEAD RADAR
-=================================================== */
-function renderFamilyWeekAhead() {
-  const radarList = document.getElementById('familyRadarList');
-  const countBadge = document.getElementById('familyWeekCount');
-  if (!radarList) return;
-
-  const fixedEvents = currentSchedule.fixed_events || [];
-  const todayStr = new Date().toISOString().split('T')[0];
-
-  // Upcoming meetings from tomorrow onwards
-  const upcomingMeetings = fixedEvents.filter(e => !e.start.startsWith(todayStr)).sort((a, b) => new Date(a.start) - new Date(b.start));
-
-  if (countBadge) countBadge.textContent = `${upcomingMeetings.length} Events`;
-  radarList.innerHTML = '';
-
-  if (upcomingMeetings.length === 0) {
-    radarList.innerHTML = `<div style="text-align:center; padding: 20px; color: var(--text-muted); font-size: 12px;">No upcoming Google Calendar meetings this week.</div>`;
-    return;
-  }
-
-  const fmtTime = (d) => {
-    let h = d.getHours();
-    const m = String(d.getMinutes()).padStart(2, '0');
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return `${h}:${m} ${ampm}`;
-  };
-
-  upcomingMeetings.slice(0, 10).forEach(ev => {
-    const dtStart = new Date(ev.start);
-    const dayStr = dtStart.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-
-    const card = document.createElement('div');
-    card.className = 'radar-item-card';
-    card.innerHTML = `
-      <div class="radar-item-left">
-        <span class="radar-day-chip">${dayStr}</span>
-        <span class="radar-item-title">${escapeHtml(ev.title || 'Meeting')}</span>
-      </div>
-      <span class="radar-item-time">${fmtTime(dtStart)}</span>
-    `;
-
-    radarList.appendChild(card);
   });
 }
 
@@ -1003,7 +976,7 @@ function renderHistoryView(historyItems, summary) {
 
     card.innerHTML = `
       <div class="stream-card-left">
-        <div class="stream-card-time" style="background:#dcfce7; color:#166534;">✓<br>${dateFormatted.split(',')[0]}</div>
+        <div class="stream-card-time" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">✓<br>${dateFormatted.split(',')[0]}</div>
         <div class="stream-card-info">
           <div class="stream-card-title">${escapeHtml(item.title)}</div>
           <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
@@ -1013,7 +986,7 @@ function renderHistoryView(historyItems, summary) {
       </div>
       <div class="stream-card-controls">
         <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Logged:</span>
-        <input type="number" id="logInput_${item.id}" value="${item.actual_minutes}" min="0" style="width: 55px; padding: 4px; border-radius: 6px; border: 1px solid var(--border-card); font-weight: 700; text-align: center;">
+        <input type="number" id="logInput_${item.id}" value="${item.actual_minutes}" min="0" style="width: 55px; padding: 4px; border-radius: 6px; border: 1px solid var(--border-card); background: var(--bg-subtle); color: var(--text-main); font-weight: 700; text-align: center;">
         <span style="font-size: 12px; color: var(--text-muted);">m</span>
         <button class="btn-card-done" id="saveLogBtn_${item.id}">Save</button>
       </div>

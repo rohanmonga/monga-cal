@@ -27,7 +27,10 @@ class DaemonService:
         self._running = True
 
     def _compute_task_set_hash(self, tasks: List[Task]) -> str:
-        data = [f"{t.id}:{t.title}:{t.priority_score}:{t.deferred_until}" for t in tasks]
+        data = [
+            f"{t.id}:{t.title}:{t.priority_score}:{t.deferred_until}:{t.due.isoformat() if t.due else ''}"
+            for t in tasks
+        ]
         return hashlib.sha256(";".join(sorted(data)).encode("utf-8")).hexdigest()
 
     def compute_plan_hash(self, blocks: List[ScheduledBlock]) -> str:

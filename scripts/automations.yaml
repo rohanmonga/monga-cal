@@ -1,0 +1,147 @@
+- alias: "Tablet - Start charging at 40%"
+  description: "Turn Kasa on when tablet drops low"
+  mode: single
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.100146663_battery_level
+      below: 41
+  condition:
+    - condition: state
+      entity_id: switch.smart_plug
+      state: "off"
+    - condition: numeric_state
+      entity_id: sensor.100146663_battery_temperature
+      below: 40
+  action:
+    - action: switch.turn_on
+      target:
+        entity_id: switch.smart_plug
+
+- alias: "Tablet - Stop charging at 80%"
+  description: "Turn Kasa off to avoid swelling"
+  mode: single
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.100146663_battery_level
+      above: 79
+  condition:
+    - condition: state
+      entity_id: switch.smart_plug
+      state: "on"
+  action:
+    - action: switch.turn_off
+      target:
+        entity_id: switch.smart_plug
+
+- alias: "Tablet - Safety cutoff at 85%"
+  description: "Failsafe if 80% automation missed"
+  mode: single
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.100146663_battery_level
+      above: 85
+  action:
+    - action: switch.turn_off
+      target:
+        entity_id: switch.smart_plug
+
+- alias: Tablet Screen - On in morning when home
+  id: tablet_screen_on_morning
+  trigger:
+    - platform: time
+      at: "07:00:00"
+    - platform: state
+      entity_id: person.rohan
+      to: "home"
+  condition:
+    - condition: time
+      after: "07:00:00"
+      before: "22:00:00"
+    - condition: state
+      entity_id: person.rohan
+      state: "home"
+    - condition: numeric_state
+      entity_id: sensor.100146663_battery_temperature
+      below: 43
+  action:
+    - action: notify.mobile_app_100146663
+      data:
+        message: command_screen_on
+    - action: notify.mobile_app_100146663
+      data:
+        message: command_screen_off_timeout
+        data:
+          command: 600000
+
+- alias: Tablet Screen - Off at night or away
+  id: tablet_screen_off_night
+  trigger:
+    - platform: time
+      at: "22:00:00"
+    - platform: state
+      entity_id: person.rohan
+      to: "not_home"
+  action:
+    - action: notify.mobile_app_100146663
+      data:
+        message: command_screen_off_timeout
+        data:
+          command: 5000
+
+- alias: "Tablet - Battery overheat: stop charging"
+  description: "Stop charging if battery gets hot; resume only once cooled"
+  mode: single
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.100146663_battery_temperature
+      above: 43
+      for:
+        minutes: 2
+  action:
+    - action: switch.turn_off
+      target:
+        entity_id: switch.smart_plug
+    - action: persistent_notification.create
+      data:
+        title: "Tablet battery overheating"
+        message: "Battery at {{ states('sensor.100146663_battery_temperature') }}°C — charging stopped as a precaution."
+        notification_id: tablet_overheat
+
+- alias: "Tablet - Battery critical temp: screen off"
+  description: "Kill screen heat too if temp keeps climbing"
+  mode: single
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.100146663_battery_temperature
+      above: 48
+      for:
+        minutes: 1
+  action:
+    - action: switch.turn_off
+      target:
+        entity_id: switch.smart_plug
+    - action: notify.mobile_app_100146663
+      data:
+        message: command_screen_off_timeout
+        data:
+          command: 5000
+    - action: persistent_notification.create
+      data:
+        title: "Tablet battery critical temp"
+        message: "Battery at {{ states('sensor.100146663_battery_temperature') }}°C — screen forced off."
+        notification_id: tablet_overheat_critical
+
+- alias: "Tablet - Battery cooled: clear alerts"
+  description: "Dismiss overheat notifications once temp recovers"
+  mode: single
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.100146663_battery_temperature
+      below: 38
+  action:
+    - action: persistent_notification.dismiss
+      data:
+        notification_id: tablet_overheat
+    - action: persistent_notification.dismiss
+      data:
+        notification_id: tablet_overheat_critical

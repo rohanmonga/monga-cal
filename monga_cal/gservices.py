@@ -530,4 +530,27 @@ class GoogleServicesManager:
             logger.error(f"Error marking task complete in Google Tasks: {e}")
             return False
 
+    def update_task_due(self, task_id: str, due_date: Optional[str]) -> bool:
+        self.invalidate_cache()
+        if not self._connected:
+            self._authenticate()
+
+        if not self._connected or not self.tasks_service:
+            logger.error(f"Cannot update task due date: Google API not connected ({self.auth_error})")
+            return False
+
+        list_id = self.get_or_create_monga_list_id()
+        try:
+            body = {"due": f"{due_date}T00:00:00.000Z"} if due_date else {"due": None}
+            self.tasks_service.tasks().patch(
+                tasklist=list_id,
+                task=task_id,
+                body=body
+            ).execute()
+            logger.info(f"Updated due date for task '{task_id}' to {due_date} in Google Tasks.")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating task due date in Google Tasks: {e}")
+            return False
+
 gservices_manager = GoogleServicesManager()
