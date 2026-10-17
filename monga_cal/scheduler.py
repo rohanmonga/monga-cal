@@ -73,11 +73,19 @@ class Scheduler:
             ev_end = (ev.end.replace(tzinfo=None) if ev.end.tzinfo else ev.end) + buf_delta
             norm_events.append(CalendarSlot(start=ev_start, end=ev_end, is_fixed=ev.is_fixed, title=ev.title, event_uid=ev.event_uid))
 
+        explicit_due_today_ids = {
+            t.id
+            for t in active_tasks
+            if t.due and (t.due.replace(tzinfo=None) if t.due.tzinfo else t.due).date() == now.date()
+        }
+        is_offday_today_active = (now.weekday() not in self.active_days) and len(explicit_due_today_ids) > 0
+
         slots: List[datetime] = []
         curr = now
 
         while curr < plan_end:
-            if curr.weekday() in self.active_days:
+            is_active_day = (curr.weekday() in self.active_days) or (is_offday_today_active and curr.date() == now.date())
+            if is_active_day:
                 if self.work_start_hour <= curr.hour < self.work_end_hour:
                     slot_end = curr + timedelta(minutes=SLOT_MINUTES)
                     is_blocked = False
@@ -115,6 +123,7 @@ class Scheduler:
             valid_start_indices = [
                 i for i in range(num_slots - total_duration_slots + 1)
                 if slots[i + total_duration_slots - 1] == slots[i] + timedelta(minutes=(total_duration_slots - 1) * SLOT_MINUTES)
+                and not (is_offday_today_active and t.id not in explicit_due_today_ids and slots[i].date() == now.date())
             ]
 
             if not valid_start_indices:
@@ -130,6 +139,7 @@ class Scheduler:
 
             # Calculate or derive deadline based on creation time & priority score
             t_created = (t.created_at.replace(tzinfo=None) if (t.created_at and t.created_at.tzinfo) else t.created_at) or now
+            has_explicit_due = t.due is not None
             t_due = t.due.replace(tzinfo=None) if (t.due and t.due.tzinfo) else t.due
 
             if not t_due:
@@ -141,6 +151,7 @@ class Scheduler:
             task_vars[t.id] = {
                 "task": t,
                 "due_naive": t_due,
+                "has_explicit_due": has_explicit_due,
                 "is_scheduled": is_scheduled,
                 "start": start_var,
                 "end": end_var,
@@ -156,21 +167,47 @@ class Scheduler:
 
         # LOCK WINDOW ENFORCEMENT (lock_window_minutes): Freeze blocks starting in < lock_window_minutes
         lock_threshold = now + timedelta(minutes=config.scheduler.lock_window_minutes)
+        allowed_today = max(0, self.max_tasks_per_day - completed_today_count) if self.max_tasks_per_day > 0 else len(active_tasks)
+        locked_today_count = 0
+        locked_intervals: List[Tuple[int, int]] = []
+
         if locked_blocks:
             for lb in locked_blocks:
                 l_id = lb.get("task_id")
                 try:
-                    l_start = datetime.fromisoformat(lb["start"])
+                    raw_start = lb["start"]
+                    l_start = datetime.fromisoformat(raw_start) if isinstance(raw_start, str) else raw_start
                     if l_start.tzinfo:
                         l_start = l_start.replace(tzinfo=None)
                     if now <= l_start < lock_threshold and l_id in task_vars:
                         matching_indices = [i for i, s_dt in enumerate(slots) if s_dt >= l_start]
                         if matching_indices:
                             closest_slot_idx = matching_indices[0]
+                            slot_dt = slots[closest_slot_idx]
+                            drift_minutes = abs((slot_dt - l_start).total_seconds()) / 60.0
+                            dur_slots = task_vars[l_id]["total_duration_slots"]
+                            cand_start, cand_end = closest_slot_idx, closest_slot_idx + dur_slots
+
+                            # Ensure the locked slot hasn't drifted past anti-thrash, doesn't exceed today's remaining capacity,
+                            # and doesn't overlap another locked block
+                            is_today_slot = (slot_dt.date() == now.date())
+                            if is_today_slot and locked_today_count >= allowed_today:
+                                logger.info(f"Lock Window: Skipping lock for '{l_id}' because today's capacity ({allowed_today} remaining) is full.")
+                                continue
+                            if drift_minutes > config.scheduler.anti_thrash_threshold_minutes:
+                                logger.info(f"Lock Window: Skipping lock for '{l_id}' because slot drifted by {drift_minutes:.1f}m.")
+                                continue
+                            if any(not (cand_end <= s or cand_start >= e) for s, e in locked_intervals):
+                                logger.info(f"Lock Window: Skipping lock for '{l_id}' due to overlap with another locked block.")
+                                continue
+
                             if closest_slot_idx in task_vars[l_id]["valid_start_indices"]:
                                 model.Add(task_vars[l_id]["is_scheduled"] == 1)
                                 model.Add(task_vars[l_id]["start"] == closest_slot_idx)
-                                logger.info(f"Lock Window: Freezing imminent task '{l_id}' at slot {closest_slot_idx} ({slots[closest_slot_idx]})")
+                                locked_intervals.append((cand_start, cand_end))
+                                if is_today_slot:
+                                    locked_today_count += 1
+                                logger.info(f"Lock Window: Freezing imminent task '{l_id}' at slot {closest_slot_idx} ({slot_dt})")
                 except Exception as ex:
                     logger.warning(f"Error locking block '{l_id}': {ex}")
 
@@ -198,14 +235,24 @@ class Scheduler:
 
                     model.AddBoolAnd([info["is_scheduled"], c1, c2]).OnlyEnforceIf(is_on_day)
                     model.AddBoolOr([info["is_scheduled"].Not(), c1.Not(), c2.Not()]).OnlyEnforceIf(is_on_day.Not())
+                    if is_offday_today_active and day_date == today_date and t_id not in explicit_due_today_ids:
+                        model.Add(is_on_day == 0)
                     day_starts.append(is_on_day)
 
                 if day_date == today_date:
-                    allowed_today = max(0, self.max_tasks_per_day - completed_today_count)
                     model.Add(sum(day_starts) <= allowed_today)
                     logger.info(f"Today's Capacity: max={self.max_tasks_per_day}, completed={completed_today_count}, remaining_allowed={allowed_today}")
                 else:
                     model.Add(sum(day_starts) <= self.max_tasks_per_day)
+
+        # Precompute high-energy slot indices across all days (only true daily high-energy hours)
+        high_slot_indices = [
+            i for i, s_dt in enumerate(slots)
+            if config.scheduler.high_energy_start_hour <= s_dt.hour < config.scheduler.high_energy_end_hour
+        ]
+        high_slot_domain = cp_model.Domain.FromValues(high_slot_indices) if high_slot_indices else None
+        non_high_slot_indices = [i for i in range(num_slots + 1) if i not in set(high_slot_indices)]
+        non_high_slot_domain = cp_model.Domain.FromValues(non_high_slot_indices) if non_high_slot_indices else None
 
         # SOFT OBJECTIVES
         objective_terms = []
@@ -219,69 +266,97 @@ class Scheduler:
             # Priority 1-5 scale (1 is highest/ASAP, 5 is lowest/Tracking)
             raw_prio = max(1, min(5, t.priority_score))
 
-            # Dynamic Priority Escalation as Deadline Draws Closer:
+            # Dynamic Priority Escalation as Deadline Draws Closer (using end-of-day for date deadlines):
             days_until_due = 10.0
+            due_eod = None
             if t_due:
-                days_until_due = (t_due - now).total_seconds() / 86400.0
+                due_eod = datetime.combine(t_due.date(), datetime.max.time().replace(microsecond=0))
+                days_until_due = (due_eod - now).total_seconds() / 86400.0
 
             # Escalation logic:
-            if days_until_due <= 1.0:
-                effective_prio_val = 1 # Escalates to P1 ASAP
+            if t_due and t_due.date() <= now.date():
+                effective_prio_val = 1  # Escalates to P1 ASAP when overdue or due today
             elif days_until_due <= 3.0:
-                effective_prio_val = max(1, raw_prio - 2) # Escalates by 2 levels
+                effective_prio_val = max(1, raw_prio - 2)  # Escalates by 2 levels
             elif days_until_due <= 5.0:
-                effective_prio_val = max(1, raw_prio - 1) # Escalates by 1 level
+                effective_prio_val = max(1, raw_prio - 1)  # Escalates by 1 level
             else:
                 effective_prio_val = raw_prio
 
             # Convert 1-5 priority to 1-5 weight (P1 -> weight 5, P5 -> weight 1)
             eff_prio_weight = max(1, min(5, 6 - effective_prio_val))
 
-            urgency_factor = 10.0 if (t_due and t_due <= now) else (10.0 / (max(0.1, days_until_due) + 1.0))
+            if t_due and t_due.date() < now.date():
+                urgency_factor = 12.0  # Explicitly overdue
+            elif t_due and t_due.date() == now.date():
+                urgency_factor = 10.0  # Due today
+            else:
+                urgency_factor = 10.0 / (max(0.1, days_until_due) + 1.0)
+
             base_score = int(eff_prio_weight * 1000 * urgency_factor)
             objective_terms.append(base_score * is_sched)
 
-            earlier_score = model.NewIntVar(-100000, 100000, f"earlier_{t_id}")
-            model.Add(earlier_score == (num_slots - start_var) * eff_prio_weight * 20).OnlyEnforceIf(is_sched)
+            slot_weight = max(10, int(eff_prio_weight * urgency_factor * 4))
+            earlier_score = model.NewIntVar(-500000, 500000, f"earlier_{t_id}")
+            model.Add(earlier_score == (num_slots - start_var) * slot_weight).OnlyEnforceIf(is_sched)
             model.Add(earlier_score == 0).OnlyEnforceIf(is_sched.Not())
             objective_terms.append(earlier_score)
 
-            # EXPLICIT DEADLINE ENFORCEMENT: Heavily penalize scheduling past the task's due date
-            if t.due and t_due:
-                due_eod = datetime.combine(t_due.date(), datetime.max.time().replace(microsecond=0))
-                late_slot_indices = [i for i, s_dt in enumerate(slots) if s_dt > due_eod]
-                if late_slot_indices:
-                    first_late_idx = min(late_slot_indices)
-                    is_late = model.NewBoolVar(f"late_{t_id}")
-                    model.Add(start_var >= first_late_idx).OnlyEnforceIf(is_late)
-                    model.Add(start_var < first_late_idx).OnlyEnforceIf(is_late.Not())
-                    objective_terms.append(-50000 * is_late)
+            # EXPLICIT DEADLINE ENFORCEMENT: Penalize scheduling past an explicit user-set due date
+            if info["has_explicit_due"] and t_due and due_eod:
+                if t_due.date() < now.date():
+                    today_eod = datetime.combine(now.date(), datetime.max.time().replace(microsecond=0))
+                    overdue_delay_indices = [i for i, s_dt in enumerate(slots) if s_dt > today_eod]
+                    if overdue_delay_indices:
+                        first_delay_idx = min(overdue_delay_indices)
+                        past_today = model.NewBoolVar(f"past_today_{t_id}")
+                        is_delayed_further = model.NewBoolVar(f"overdue_delay_{t_id}")
+                        model.Add(start_var >= first_delay_idx).OnlyEnforceIf(past_today)
+                        model.Add(start_var < first_delay_idx).OnlyEnforceIf(past_today.Not())
+                        model.AddBoolAnd([is_sched, past_today]).OnlyEnforceIf(is_delayed_further)
+                        model.AddBoolOr([is_sched.Not(), past_today.Not()]).OnlyEnforceIf(is_delayed_further.Not())
+                        objective_terms.append(-8000 * is_delayed_further)
+                else:
+                    late_slot_indices = [i for i, s_dt in enumerate(slots) if s_dt > due_eod]
+                    if late_slot_indices:
+                        first_late_idx = min(late_slot_indices)
+                        past_due = model.NewBoolVar(f"past_due_{t_id}")
+                        is_late = model.NewBoolVar(f"late_{t_id}")
+                        model.Add(start_var >= first_late_idx).OnlyEnforceIf(past_due)
+                        model.Add(start_var < first_late_idx).OnlyEnforceIf(past_due.Not())
+                        model.AddBoolAnd([is_sched, past_due]).OnlyEnforceIf(is_late)
+                        model.AddBoolOr([is_sched.Not(), past_due.Not()]).OnlyEnforceIf(is_late.Not())
+                        objective_terms.append(-5000 * is_late)
 
-            # HIGH-ENERGY WINDOW BOOST (Linear scoring, 1 BoolVar per task!)
-            if t.energy == "high":
-                high_slot_indices = [
-                    i for i, s_dt in enumerate(slots)
-                    if config.scheduler.high_energy_start_hour <= s_dt.hour < config.scheduler.high_energy_end_hour
-                ]
-                if high_slot_indices:
-                    h_min, h_max = min(high_slot_indices), max(high_slot_indices)
-                    in_high_win = model.NewBoolVar(f"high_win_{t_id}")
-                    hc1 = model.NewBoolVar(f"hc1_{t_id}")
-                    hc2 = model.NewBoolVar(f"hc2_{t_id}")
-                    model.Add(start_var >= h_min).OnlyEnforceIf(hc1)
-                    model.Add(start_var < h_min).OnlyEnforceIf(hc1.Not())
-                    model.Add(start_var <= h_max).OnlyEnforceIf(hc2)
-                    model.Add(start_var > h_max).OnlyEnforceIf(hc2.Not())
+            # HIGH-ENERGY WINDOW BOOST (Exact per-day high-energy domain constraint!)
+            if t.energy == "high" and high_slot_domain is not None:
+                in_high_win = model.NewBoolVar(f"high_win_{t_id}")
+                in_high_slot = model.NewBoolVar(f"in_high_slot_{t_id}")
+                model.AddLinearExpressionInDomain(start_var, high_slot_domain).OnlyEnforceIf(in_high_slot)
+                if non_high_slot_domain is not None:
+                    model.AddLinearExpressionInDomain(start_var, non_high_slot_domain).OnlyEnforceIf(in_high_slot.Not())
+                else:
+                    model.Add(in_high_slot == 1)
 
-                    model.AddBoolAnd([is_sched, hc1, hc2]).OnlyEnforceIf(in_high_win)
-                    model.AddBoolOr([is_sched.Not(), hc1.Not(), hc2.Not()]).OnlyEnforceIf(in_high_win.Not())
-                    objective_terms.append(200 * in_high_win)
+                model.AddBoolAnd([is_sched, in_high_slot]).OnlyEnforceIf(in_high_win)
+                model.AddBoolOr([is_sched.Not(), in_high_slot.Not()]).OnlyEnforceIf(in_high_win.Not())
+                objective_terms.append(2500 * in_high_win)
 
         model.Maximize(sum(objective_terms))
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = 5.0
         status = solver.Solve(model)
+        if status == cp_model.INFEASIBLE and locked_blocks:
+            logger.warning("CP-SAT returned INFEASIBLE with locked_blocks; retrying without lock constraints.")
+            return self.solve(
+                tasks=tasks,
+                fixed_events=fixed_events,
+                start_time=start_time,
+                days_ahead=days_ahead,
+                locked_blocks=None,
+                completed_today_count=completed_today_count,
+            )
         solve_duration = round(time.time() - t0, 4)
 
         blocks: List[ScheduledBlock] = []

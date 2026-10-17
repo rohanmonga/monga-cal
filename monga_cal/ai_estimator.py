@@ -55,14 +55,25 @@ CATEGORY_MAP = [
     ("education", "School & Education", "🎓", "coral"),
 ]
 
+ALLOWED_PRESETS = {"red", "amber", "purple", "cyan", "emerald", "coral", "neutral", "fixed"}
+
+def _sanitize_icon(icon_str: Optional[str]) -> str:
+    if not icon_str:
+        return "📌"
+    raw = str(icon_str).strip()
+    if any(ch in raw for ch in '<>"\'&') or len(raw) > 4:
+        return "📌"
+    return raw or "📌"
+
 def resolve_category_preset(cat_str: str, icon_str: Optional[str] = None, title_str: str = "") -> tuple:
     combined = f"{cat_str} {title_str}".lower()
-    
+    safe_icon = _sanitize_icon(icon_str) if (icon_str and icon_str != "📌") else None
+
     for key, cname, cicon, cpreset in CATEGORY_MAP:
         if key in combined:
-            return cname, (icon_str if (icon_str and icon_str != "📌") else cicon), cpreset
-    
-    return (cat_str.title() if cat_str else "General"), (icon_str or "📌"), "neutral"
+            return cname, (safe_icon or cicon), cpreset
+
+    return (cat_str.title() if cat_str else "General"), (safe_icon or "📌"), "neutral"
 
 class AIEstimator:
     def __init__(self, db: Database):
@@ -100,9 +111,7 @@ class AIEstimator:
             chash = task_hashes[t.id]
             cached = cached_batch.get(chash)
             if cached:
-                prio = cached.get("priority_score", 3)
-                if prio > 5:
-                    prio = 3
+                prio = int(cached.get("priority_score", 3) or 3)
                 t.estimated_minutes = cached.get("estimated_minutes", 30)
                 t.priority_score = max(1, min(5, prio))
                 t.energy = cached.get("energy_level", "medium")
@@ -114,7 +123,7 @@ class AIEstimator:
                 )
                 t.category = cat_name
                 t.category_icon = cat_icon
-                t.color_preset = preset
+                t.color_preset = preset if preset in ALLOWED_PRESETS else "neutral"
                 t.manager_directive = cached.get("manager_directive", "Standard priority focus block.")
                 t.flexible = True
             else:
@@ -136,9 +145,7 @@ class AIEstimator:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
                 saved_prio = priority_overrides.get(t.id)
                 prio = saved_prio if saved_prio else (t.priority_score or config.ai.default_priority)
-                if prio > 5:
-                    prio = 3
-                t.priority_score = max(1, min(5, prio))
+                t.priority_score = max(1, min(5, int(prio)))
                 cat_name, cat_icon, preset = resolve_category_preset(getattr(t, "title", ""), title_str=getattr(t, "title", ""))
                 t.category = cat_name
                 t.category_icon = cat_icon
@@ -206,9 +213,7 @@ Respond ONLY with a valid JSON array where each object matches this schema:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
                 saved_prio = priority_overrides.get(t.id)
                 prio = saved_prio if saved_prio else (t.priority_score or config.ai.default_priority)
-                if prio > 5:
-                    prio = 3
-                t.priority_score = max(1, min(5, prio))
+                t.priority_score = max(1, min(5, int(prio)))
                 cat_name, cat_icon, preset = resolve_category_preset(getattr(t, "title", ""), title_str=getattr(t, "title", ""))
                 t.category = cat_name
                 t.category_icon = cat_icon
@@ -225,10 +230,7 @@ Respond ONLY with a valid JSON array where each object matches this schema:
 
             for t in uncached_tasks:
                 item = est_map.get(t.id, {})
-                prio = int(item.get("priority_score", 3))
-                if prio > 5:
-                    prio = 3
-                prio = max(1, min(5, prio))
+                prio = max(1, min(5, int(item.get("priority_score", 3) or 3)))
 
                 raw_cat = str(item.get("category", t.title))
                 raw_icon = item.get("category_icon")
@@ -240,7 +242,7 @@ Respond ONLY with a valid JSON array where each object matches this schema:
                     "energy_level": str(item.get("energy_level", "medium")).lower(),
                     "category": cat_name,
                     "category_icon": cat_icon,
-                    "color_preset": preset,
+                    "color_preset": preset if preset in ALLOWED_PRESETS else "neutral",
                     "manager_directive": str(item.get("manager_directive", "AI batch estimated focus block.")),
                     "reasoning": "Batch AI estimated"
                 }
@@ -272,9 +274,7 @@ Respond ONLY with a valid JSON array where each object matches this schema:
                 t.estimated_minutes = t.estimated_minutes or config.ai.default_duration_minutes
                 saved_prio = priority_overrides.get(t.id)
                 prio = saved_prio if saved_prio else (t.priority_score or config.ai.default_priority)
-                if prio > 5:
-                    prio = 3
-                t.priority_score = max(1, min(5, prio))
+                t.priority_score = max(1, min(5, int(prio)))
                 cat_name, cat_icon, preset = resolve_category_preset(getattr(t, "title", ""), title_str=getattr(t, "title", ""))
                 t.category = cat_name
                 t.category_icon = cat_icon

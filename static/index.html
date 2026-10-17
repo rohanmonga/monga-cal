@@ -6,57 +6,109 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#090d16">
-  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" id="metaThemeColor" content="#f1f5f9">
+  <meta name="color-scheme" id="metaColorScheme" content="light dark">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Monga Cal • Family & Focus Command Hub</title>
+  <script>
+    (function() {
+      try {
+        if (!localStorage.getItem('monga_theme_preference_v7')) {
+          localStorage.setItem('monga_theme_preference', 'auto');
+          localStorage.setItem('monga_theme_preference_v7', '1');
+        }
+        var pref = localStorage.getItem('monga_theme_preference') || 'auto';
+        var hour;
+        try {
+          hour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hourCycle: 'h23' }).format(new Date()), 10);
+        } catch(e) {
+          hour = new Date().getHours();
+        }
+        var theme = (pref === 'light' || pref === 'dark') ? pref : ((hour >= 6 && hour < 19) ? 'light' : 'dark');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch(e) {}
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=8">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css?v=23">
 </head>
 <body>
 
   <div class="hub-container">
     
-    <!-- Top Executive Header -->
+    <!-- ZONE A: TOP COMMAND & TELEMETRY BAR -->
     <header class="hub-header">
       <div class="header-brand-group">
-        <div class="brand-logo-badge">⚡</div>
-        <div>
-          <h1 class="brand-title">Monga Cal</h1>
-          <div class="status-indicator-pill" id="headerStatusPill">
+        <div class="brand-logo-badge" aria-hidden="true">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        </div>
+        <div class="brand-meta">
+          <div class="brand-title-row">
+            <h1 class="brand-title">Monga OS</h1>
+            <span class="solver-engine-pill" id="solverTelemetryBadge" title="OR-Tools CP-SAT Autonomous Scheduler">CP-SAT</span>
+          </div>
+          <div class="status-indicator-pill" id="headerStatusPill" title="Click to manage Google Workspace connection">
             <span class="status-dot online"></span>
             <span id="headerStatusText">Live Google Sync</span>
           </div>
         </div>
       </div>
-      
-      <!-- Glanceable Clock Widget -->
-      <div class="hub-clock-widget">
-        <div class="clock-display" id="clockTime">--:--</div>
-        <div class="date-display" id="clockDate">--</div>
-      </div>
 
-      <!-- Quick Action Controls -->
-      <div class="header-actions">
-        <button class="hub-action-btn primary" id="openAddTaskBtn">
-          <span>+</span> Add Task
+      <!-- INLINE AI QUICK-CAPTURE OMNIBAR (⌘K) -->
+      <form class="omnibar-form" id="quickCaptureForm" autocomplete="off">
+        <span class="omnibar-spark">⚡</span>
+        <input
+          type="text"
+          class="omnibar-input"
+          id="quickCaptureInput"
+          placeholder="Quick capture task with AI... (Press ⌘K or / to focus, Enter to schedule)"
+          autocomplete="off"
+        >
+        <button type="button" class="omnibar-prio-pill prio-2" id="quickCapturePrioBtn" title="Click to cycle priority for quick capture">P2 High</button>
+        <button type="submit" class="omnibar-submit-btn" id="quickCaptureSubmitBtn" title="AI Estimate & Schedule Now">
+          <span>Schedule</span>
+          <kbd class="omnibar-kbd">↵</kbd>
         </button>
-        <button class="hub-action-btn star-btn" id="openLogChoreBtn">
-          <span>⭐</span> Award Star
-        </button>
-        <button class="hub-action-btn secondary" id="rescheduleBtn" title="Re-Solve Schedule with CP-SAT">
-          <span>⚡</span> Re-Solve
-        </button>
-        <button class="hub-icon-btn" id="tabHistoryToggleBtn" title="Completed Task Log">
-          <span>⏱️</span>
-        </button>
-        <button class="hub-icon-btn" id="toggleFullscreenBtn" title="Toggle Kiosk Fullscreen (Wall Tablet)">
-          <span>⛶</span>
-        </button>
-        <button class="hub-icon-btn" id="openSettingsBtn" title="Schedule & Display Settings">
-          <span>⚙️</span>
-        </button>
+      </form>
+
+      <!-- RIGHT TELEMETRY: WALL CLOCK + HARDWARE DOCK -->
+      <div class="header-right-cluster">
+        <div class="hub-clock-widget">
+          <div class="clock-display" id="clockTime">--:--</div>
+          <div class="date-display" id="clockDate">--</div>
+        </div>
+
+        <div class="header-actions">
+          <button class="hub-action-btn primary" id="openAddTaskBtn" title="Open Full Task Modal (Shortcut: N)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>New</span>
+          </button>
+          <button class="hub-action-btn secondary" id="rescheduleBtn" title="Re-Solve Schedule with CP-SAT">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            <span>Solve</span>
+          </button>
+          <button class="hub-icon-btn" id="tabHistoryToggleBtn" title="Completed Task Audit Log">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          </button>
+          <button class="hub-icon-btn" id="toggleFullscreenBtn" title="Toggle Kiosk Fullscreen (Wall Tablet)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+          </button>
+          <button class="hub-icon-btn" id="themeToggleBtn" title="Toggle Day/Night Theme">
+            <span id="themeToggleIcon" style="display:inline-flex;align-items:center;justify-content:center;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+            </span>
+          </button>
+          <button class="hub-icon-btn" id="toggleScreenBtn" title="Sleep Tablet Screen">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+          </button>
+          <button class="hub-icon-btn" id="openSettingsBtn" title="Schedule & Display Settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0-2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -65,145 +117,204 @@
       <div class="auth-banner-content">
         <span class="alert-icon">⚠️</span>
         <div>
-          <strong>Google Workspace Disconnected:</strong> OAuth token expired or revoked. Re-authenticate to resume syncing.
+          <strong>Google Workspace Offline:</strong> OAuth token expired or revoked. Operating on local cache until reconnected.
         </div>
       </div>
-      <button id="bannerAuthBtn" class="auth-banner-btn">🔑 Reconnect Google Account</button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button id="bannerAuthBtn" class="auth-banner-btn">Reconnect</button>
+        <button id="dismissAuthBannerBtn" class="auth-banner-dismiss" title="Dismiss banner">✕</button>
+      </div>
     </div>
 
-    <!-- MAIN VIEW: BENTO GRID DASHBOARD -->
-    <main id="mainDashboardView" class="bento-grid">
+    <!-- MAIN OS WORKSPACE: 50/50 DUAL-STAGE CO-HERO COMMAND STUDIO -->
+    <main id="mainDashboardView" class="os-workspace">
 
-      <!-- LEFT COLUMN: FOCUS & DAILY CAPACITY -->
-      <section class="bento-col-left">
-
-        <!-- TILE 1: CURRENT FOCUS / UP NEXT (HERO) -->
-        <div class="bento-tile hero-focus-tile" id="heroFocusTile">
-          <div class="tile-header">
-            <div class="badge-status-pill focus-pill" id="heroFocusBadge">
-              <span class="pulse-dot"></span>
-              <span id="heroFocusBadgeText">CURRENT FOCUS</span>
+      <!-- STAGE 1 (LEFT 50%): KIDS CHORE STARS ARENA (PRIMARY AUDIENCE STAGE) -->
+      <section class="os-kids-stage">
+        <div class="bento-tile kids-stars-tile kids-hero-arena" id="bentoKidsStars">
+          <div class="tile-header kids-arena-header">
+            <div class="kids-arena-title-group">
+              <div class="kids-arena-icon-badge" aria-hidden="true">⭐</div>
+              <div>
+                <div class="kids-arena-heading-row">
+                  <h2 class="kids-arena-title">Kids Chore Stars Arena</h2>
+                  <span class="kids-family-vault-pill" id="kidsArenaTotalBadge">🏆 0 Total Stars</span>
+                </div>
+                <p class="kids-arena-subtitle">Tap any chore mission on your card to earn instant stars!</p>
+              </div>
             </div>
-            <div class="tile-time-tag" id="heroTimeRemaining">--</div>
+            <button class="chip-add-star" id="btnQuickRewardModal">+ Custom Chore</button>
           </div>
 
-          <div class="hero-body">
-            <div class="hero-time-range" id="heroTimeRange">--:-- - --:--</div>
-            <h2 class="hero-task-title" id="heroTaskTitle">Loading schedule...</h2>
-            <p class="hero-task-directive" id="heroTaskDirective">Synchronizing your active workload.</p>
-          </div>
+          <!-- Dual Hero Kid Player Cards (Vivaan & Vrihaan) -->
+          <div class="kids-profiles-grid" id="kidsProfilesGrid"></div>
 
-          <div class="hero-actions" id="heroActionsGroup">
-            <button class="btn-hero-complete" id="heroCompleteBtn">
-              <span>✅</span> Mark Complete
-            </button>
-            <button class="btn-hero-snooze" id="heroSnoozeBtn">
-              <span>🌙</span> Snooze 1 Day
-            </button>
+          <!-- Bottom Split inside Kids Arena: 7-Day Head-to-Head Chart + Trophy Feed -->
+          <div class="kids-arena-bottom-grid">
+            <!-- 7-Day Timeseries Trend Visualization -->
+            <div class="stars-timeseries-container">
+              <div class="timeseries-label">
+                <span>7-Day Star Velocity</span>
+                <span class="timeseries-legend"><span class="legend-dot v1"></span>Vivaan <span class="legend-dot v2"></span>Vrihaan</span>
+              </div>
+              <div class="timeseries-chart-bars" id="kidsTimeseriesChart"></div>
+            </div>
+
+            <!-- Recent Chore Trophy Feed -->
+            <div class="kids-trophy-feed-panel">
+              <div class="timeseries-label">
+                <span>Recent Star Trophies</span>
+                <span class="trophy-feed-hint">Tap ✕ to undo</span>
+              </div>
+              <div class="recent-chores-ticker" id="recentChoresTicker"></div>
+            </div>
           </div>
         </div>
-
-        <!-- TILE 2: DAILY WORKLOAD CAPACITY -->
-        <div class="bento-tile capacity-tile" id="bentoCapacityTile">
-          <div class="tile-header">
-            <h3 class="tile-title"><span>🎯</span> Daily Focus Capacity</h3>
-            <span class="capacity-ratio-tag" id="capacityRatioTag">-- / --</span>
-          </div>
-
-          <div class="capacity-meter-wrapper">
-            <div class="capacity-meter-track">
-              <div class="capacity-meter-fill" id="capacityMeterFill" style="width: 0%;"></div>
-            </div>
-          </div>
-
-          <div class="capacity-meta-row">
-            <span id="capacityMetaDetail">0 completed today</span>
-            <span class="capacity-pill-tag" id="capacitySlotsLeft">-- slots remaining</span>
-          </div>
-        </div>
-
       </section>
 
-      <!-- CENTER COLUMN: TODAY'S UNIFIED TIMELINE -->
-      <section class="bento-col-center">
+      <!-- STAGE 2 (RIGHT 50%): EXECUTIVE FOCUS, CAPACITY & HORIZON STUDIO -->
+      <section class="os-main-studio">
+
+        <!-- TOP EXECUTIVE DECK: FOCUS COCKPIT + 3-SLOT DAILY LOADOUT SIDE BY SIDE -->
+        <div class="studio-top-deck">
+          <!-- MODULE 1: FOCUS COCKPIT + LIVE SPRINT TIMER -->
+          <div class="bento-tile hero-focus-tile" id="heroFocusTile">
+            <div class="tile-header">
+              <div class="badge-status-pill focus-pill" id="heroFocusBadge">
+                <span class="pulse-dot"></span>
+                <span id="heroFocusBadgeText">CURRENT FOCUS</span>
+              </div>
+              <div class="tile-time-tag" id="heroTimeRemaining">--</div>
+            </div>
+
+            <div class="hero-body">
+              <div class="hero-time-range" id="heroTimeRange">--:-- - --:--</div>
+              <h2 class="hero-task-title" id="heroTaskTitle">Loading schedule...</h2>
+              <p class="hero-task-directive" id="heroTaskDirective">Synchronizing your active workload.</p>
+            </div>
+
+            <!-- LIVE INTERACTIVE FOCUS SPRINT TIMER -->
+            <div class="focus-sprint-bar" id="heroTimerBar">
+              <div class="sprint-timer-left">
+                <span class="sprint-label">SPRINT TIMER</span>
+                <span class="sprint-digits" id="heroTimerDisplay">25:00</span>
+              </div>
+              <div class="sprint-timer-controls">
+                <button type="button" class="btn-sprint-toggle" id="heroTimerToggleBtn">▶ Start</button>
+                <button type="button" class="btn-sprint-reset" id="heroTimerResetBtn" title="Reset Timer">↺</button>
+              </div>
+            </div>
+
+            <div class="hero-progress-track" id="heroProgressTrack">
+              <div class="hero-progress-fill" id="heroProgressFill" style="width: 0%;"></div>
+            </div>
+
+            <div class="hero-actions" id="heroActionsGroup">
+              <button class="btn-hero-complete" id="heroCompleteBtn">
+                <span>Mark Complete</span>
+              </button>
+              <button class="btn-hero-snooze" id="heroSnoozeBtn">
+                <span>Snooze 1d</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- MODULE 2: TACTILE 3-SLOT DAILY CAPACITY LOADOUT -->
+          <div class="bento-tile capacity-tile" id="bentoCapacityTile">
+            <div class="tile-header">
+              <h3 class="tile-title" style="white-space: nowrap;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+                <span>Daily Slot Loadout</span>
+              </h3>
+              <span class="capacity-ratio-tag" id="capacityRatioTag" style="white-space: nowrap;">0 / 3</span>
+            </div>
+
+            <!-- Interactive 3-Slot Bays -->
+            <div class="capacity-slots-grid" id="capacitySlotsGrid"></div>
+
+            <div class="capacity-meter-wrapper">
+              <div class="capacity-meter-track">
+                <div class="capacity-meter-fill" id="capacityMeterFill" style="width: 0%;"></div>
+                <div class="capacity-meter-scheduled" id="capacityMeterScheduled" style="width: 0%;"></div>
+              </div>
+            </div>
+
+            <div class="capacity-meta-row">
+              <span id="capacityMetaDetail">0 completed • 0 scheduled</span>
+              <span class="capacity-pill-tag" id="capacitySlotsLeft">3 open slots</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- MIDDLE STUDIO: MULTI-VIEW PLANNER (5-DAY BOARD | TODAY | 14-DAY | BACKLOG) -->
         <div class="bento-tile schedule-stream-tile">
-          <div class="tile-header sticky-header">
-            <div>
-              <h2 class="tile-title-main"><span>📅</span> Today's Schedule & Meetings</h2>
-              <p class="tile-subtitle" id="agendaTodaySubtitle">Loading today's agenda...</p>
+          <div class="tile-header sticky-header stream-header-bar">
+            <div class="studio-title-cluster">
+              <h2 class="tile-title-main">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--primary-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                <span id="streamMainHeading">5-Day Horizon Board</span>
+              </h2>
+              <p class="tile-subtitle" id="agendaTodaySubtitle">Autonomous CP-SAT time-blocked horizon</p>
             </div>
             <div class="schedule-stream-actions">
+              <div class="stream-view-tabs" id="streamViewTabs" role="tablist">
+                <button class="stream-tab-btn active" data-view="board" id="streamTabBoard">
+                  <span>🗓️ Week Board</span>
+                  <span class="tab-count" id="tabCountBoard">5d</span>
+                </button>
+                <button class="stream-tab-btn" data-view="today" id="streamTabToday">
+                  <span>Today</span>
+                  <span class="tab-count" id="tabCountToday">0</span>
+                </button>
+                <button class="stream-tab-btn" data-view="upcoming" id="streamTabUpcoming">
+                  <span>14-Day</span>
+                  <span class="tab-count" id="tabCountUpcoming">0</span>
+                </button>
+                <button class="stream-tab-btn" data-view="backlog" id="streamTabBacklog">
+                  <span>Queue</span>
+                  <span class="tab-count" id="tabCountBacklog">0</span>
+                </button>
+              </div>
               <span class="live-clock-badge" id="scheduleNowTime">--:--</span>
             </div>
           </div>
 
-          <!-- Chronological Stream of Meetings + Tasks -->
+          <!-- Dynamic Workspace Canvas (5-Day Columns Board OR Stream OR Queue) -->
           <div class="schedule-stream-list" id="agendaTimeline">
-            <!-- Dynamic Cards Inserted Here -->
+            <!-- Dynamic Content Inserted Here -->
           </div>
         </div>
-      </section>
 
-      <!-- RIGHT COLUMN: FAMILY HUB & RADAR -->
-      <section class="bento-col-right">
-
-        <!-- TILE 3: KIDS CHORE STAR TRACKER -->
-        <div class="bento-tile kids-stars-tile" id="bentoKidsStars">
-          <div class="tile-header">
-            <h3 class="tile-title"><span>⭐</span> Kids Chore Stars</h3>
-            <button class="chip-add-star" id="btnQuickRewardModal">+ Reward</button>
-          </div>
-
-          <!-- Dual Kid Profiles -->
-          <div class="kids-profiles-grid" id="kidsProfilesGrid">
-            <!-- Dynamic Kid Cards (Vivaan & Vrihaan) -->
-          </div>
-
-          <!-- 7-Day Timeseries Trend Visualization -->
-          <div class="stars-timeseries-container">
-            <div class="timeseries-label">
-              <span>7-Day Star Activity</span>
-              <span class="timeseries-legend"><span class="legend-dot v1"></span>Vivaan <span class="legend-dot v2"></span>Vrihaan</span>
+        <!-- BOTTOM DOCKED RIBBON: 7-DAY VISUAL TIME-BLOCK SCRUBBER -->
+        <section class="bento-bottom-shelf">
+          <div class="timeline-shelf-header">
+            <div class="shelf-title-group">
+              <h3>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><line x1="4" y1="12" x2="14" y2="12"></line><line x1="4" y1="18" x2="18" y2="18"></line></svg>
+                <span>Day Time-Block Scrubber</span>
+              </h3>
+              <span class="shelf-subtitle" id="ganttDateSubtitle">Tap any day or block to inspect</span>
             </div>
-            <div class="timeseries-chart-bars" id="kidsTimeseriesChart">
-
-              <!-- Dynamic Daily Bars -->
+            <div class="gantt-day-tabs" id="ganttDayTabs">
+              <!-- Dynamic 7 Day Buttons -->
             </div>
           </div>
 
-          <!-- Recent Chore Ticker -->
-          <div class="recent-chores-ticker" id="recentChoresTicker">
-            <!-- Recent chore records -->
+          <div class="gantt-wrapper">
+            <div class="gantt-tracks-container" id="ganttTracks"></div>
+            <div class="gantt-time-scale" id="ganttTimeScale"></div>
           </div>
-        </div>
+        </section>
 
       </section>
 
     </main>
 
-    <!-- BOTTOM SHELF: 7-DAY INTERACTIVE TIMELINE (GANTT) -->
-    <section class="bento-bottom-shelf">
-      <div class="timeline-shelf-header">
-        <div class="shelf-title-group">
-          <h3><span>🗓️</span> 7-Day Visual Timeline</h3>
-          <span class="shelf-subtitle" id="ganttDateSubtitle">Scrub across the week</span>
-        </div>
-        <div class="gantt-day-tabs" id="ganttDayTabs">
-          <!-- Dynamic 7 Day Buttons -->
-        </div>
-      </div>
-
-      <div class="gantt-wrapper">
-        <div class="gantt-tracks-container" id="ganttTracks"></div>
-        <div class="gantt-time-scale" id="ganttTimeScale"></div>
-      </div>
-    </section>
-
     <!-- VIEW 2: COMPLETED TASKS & TIME LOG HISTORY (OVERLAY / VIEW) -->
     <div id="tabHistoryView" class="history-view-modal modal-overlay">
       <div class="modal-container modal-xl">
         <div class="modal-head">
-          <h3>⏱️ Completed Tasks & Time Audit Log</h3>
+          <h3>Completed Tasks & Time Audit Log</h3>
           <button class="btn-close-modal" id="closeHistoryViewBtn">✕</button>
         </div>
 
@@ -240,19 +351,42 @@
   <div class="modal-overlay" id="addTaskModal">
     <div class="modal-container">
       <div class="modal-head">
-        <h3>+ Add Focus Task</h3>
+        <div>
+          <h3>New Focus Task</h3>
+          <p class="modal-subtitle">AI auto-estimates duration & schedules into your next open focus window</p>
+        </div>
       </div>
       <div class="form-group">
-        <label class="label-title">Task Title</label>
-        <input type="text" class="custom-input" id="newTaskTitleInput" placeholder="e.g., Skateboard UPS return drop off">
+        <label class="label-title" for="newTaskTitleInput">Task Title</label>
+        <input type="text" class="custom-input" id="newTaskTitleInput" placeholder="e.g., Skateboard UPS return drop off" autocomplete="off">
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="label-title">Priority Level</label>
+          <div class="prio-selector-chips" id="newTaskPriorityGroup">
+            <button type="button" class="day-chip prio-select-chip" data-prio="1">P1 Urgent</button>
+            <button type="button" class="day-chip prio-select-chip" data-prio="2">P2 High</button>
+            <button type="button" class="day-chip prio-select-chip active" data-prio="3">P3 Focus</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label-title" for="newTaskDueInput">Due Date (Optional)</label>
+          <input type="date" class="custom-input" id="newTaskDueInput">
+          <div class="quick-date-chips">
+            <button type="button" class="chore-chip quick-due-chip" data-due-offset="0">Today</button>
+            <button type="button" class="chore-chip quick-due-chip" data-due-offset="1">Tomorrow</button>
+            <button type="button" class="chore-chip quick-due-chip" data-due-offset="3">+3d</button>
+            <button type="button" class="chore-chip quick-due-chip" data-due-offset="clear">Clear</button>
+          </div>
+        </div>
       </div>
       <div class="form-group">
-        <label class="label-title">Notes / Directive (Optional)</label>
-        <textarea class="custom-input custom-textarea" id="newTaskNotesInput" placeholder="High priority, drop off before 4 PM..."></textarea>
+        <label class="label-title" for="newTaskNotesInput">Notes / Context (Optional)</label>
+        <textarea class="custom-input custom-textarea" id="newTaskNotesInput" placeholder="Drop off before 4 PM, bring receipt..."></textarea>
       </div>
       <div class="modal-actions">
         <button class="btn-cancel" id="cancelAddTaskBtn">Cancel</button>
-        <button class="btn-submit" id="saveAddTaskBtn">Create Task</button>
+        <button class="btn-submit" id="saveAddTaskBtn">Schedule Task</button>
       </div>
     </div>
   </div>
@@ -261,8 +395,10 @@
   <div class="modal-overlay" id="logChoreModal">
     <div class="modal-container">
       <div class="modal-head">
-        <h3>⭐ Award Chore Star</h3>
-        <p class="modal-subtitle">Reward a kid for helping out or finishing practice</p>
+        <div>
+          <h3>⭐ Award Chore Star</h3>
+          <p class="modal-subtitle">Reward a kid for helping out or finishing practice</p>
+        </div>
       </div>
       
       <div class="form-group">
@@ -271,11 +407,10 @@
           <button class="kid-chip active" data-kid="Vivaan">👦 Vivaan</button>
           <button class="kid-chip" data-kid="Vrihaan">👦 Vrihaan</button>
         </div>
-
       </div>
 
       <div class="form-group">
-        <label class="label-title">Chore / Accomplishment</label>
+        <label class="label-title" for="choreDescriptionInput">Chore / Accomplishment</label>
         <input type="text" class="custom-input" id="choreDescriptionInput" placeholder="e.g., Cleaned up room, Practiced piano, Emptied dishwasher">
         <div class="quick-chores-chips">
           <button class="chore-chip" data-text="Cleaned Room">Cleaned Room</button>
@@ -306,7 +441,7 @@
   <div class="modal-overlay" id="settingsModal">
     <div class="modal-container modal-lg">
       <div class="modal-head">
-        <h3>⚙️ Schedule Settings</h3>
+        <h3>Schedule & Display Settings</h3>
       </div>
       <div class="form-group">
         <label class="label-title">Active Work Days</label>
@@ -353,6 +488,14 @@
           </label>
         </div>
       </div>
+      <div class="form-group" style="margin-top: 14px; border-top: 1px dashed var(--border-card); padding-top: 14px;">
+        <label class="label-title">Theme Mode</label>
+        <div style="display: flex; gap: 8px; margin-top: 6px;" id="themePreferenceGroup">
+          <button type="button" class="day-chip theme-chip" data-theme-pref="auto" id="themeChipAuto">🌓 Auto (Day/Night)</button>
+          <button type="button" class="day-chip theme-chip" data-theme-pref="light" id="themeChipLight">☀️ Light</button>
+          <button type="button" class="day-chip theme-chip" data-theme-pref="dark" id="themeChipDark">🌙 Dark</button>
+        </div>
+      </div>
       <div class="modal-actions">
         <button class="btn-cancel" id="cancelSettingsBtn">Cancel</button>
         <button class="btn-submit" id="saveSettingsBtn">Save Settings</button>
@@ -364,12 +507,14 @@
   <div class="modal-overlay" id="completionModal">
     <div class="modal-container">
       <div class="modal-head">
-        <h3>✅ Complete Task</h3>
-        <p class="modal-subtitle" id="modalTaskTitle">Task Title</p>
+        <div>
+          <h3>Complete Focus Task</h3>
+          <p class="modal-subtitle" id="modalTaskTitle">Task Title</p>
+        </div>
       </div>
       <div class="form-group" style="margin-top: 16px;">
-        <label class="label-title">Actual Time Spent (Minutes)</label>
-        <input type="number" class="custom-input" id="actualMinutesInput" value="30">
+        <label class="label-title" for="actualMinutesInput">Actual Time Spent (Minutes)</label>
+        <input type="number" class="custom-input" id="actualMinutesInput" value="30" min="1" max="480">
         <div style="display: flex; gap: 8px; margin-top: 8px;">
           <button class="day-chip quick-chip" data-min="15">15m</button>
           <button class="day-chip quick-chip" data-min="30">30m</button>
@@ -388,16 +533,18 @@
   <div class="modal-overlay" id="authModal">
     <div class="modal-container modal-lg">
       <div class="modal-head">
-        <h3>🔑 Reconnect Google Account</h3>
-        <p class="modal-subtitle" id="authModalMessage">Your Google OAuth token has expired or been revoked. Please re-authenticate to sync Google Tasks and Google Calendar.</p>
+        <div>
+          <h3>Reconnect Google Account</h3>
+          <p class="modal-subtitle" id="authModalMessage">Your Google OAuth token has expired or been revoked. Please re-authenticate to sync Google Tasks and Google Calendar.</p>
+        </div>
       </div>
       <div class="form-group" style="margin-top: 16px;">
         <button class="btn-submit" id="btnLaunchOAuth" style="width: 100%; padding: 14px; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; background: #2563eb;">
-          <span>🌐</span> Authorize with Google Account
+          <span>Authorize with Google Account</span>
         </button>
       </div>
-      <div class="form-group" style="margin-top: 16px; border-top: 1px dashed var(--border-light); padding-top: 12px;">
-        <label class="label-title">Or paste Authorization Code / URL (Headless / Fridge Mode)</label>
+      <div class="form-group" style="margin-top: 16px; border-top: 1px dashed var(--border-card); padding-top: 12px;">
+        <label class="label-title" for="authCodeInput">Or paste Authorization Code / URL (Headless / Fridge Mode)</label>
         <input type="text" class="custom-input" id="authCodeInput" placeholder="Paste Google Auth Code here...">
       </div>
       <div class="modal-actions">
@@ -407,6 +554,12 @@
     </div>
   </div>
 
-  <script src="app.js?v=8"></script>
+  <!-- Non-Blocking Toast Notification Stack -->
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <!-- Full-Screen Pitch-Black Sleep Curtain (Tap Anywhere to Wake) -->
+  <div id="screenSleepOverlay" class="screen-sleep-overlay hidden" aria-hidden="true"></div>
+
+  <script src="app.js?v=23"></script>
 </body>
 </html>

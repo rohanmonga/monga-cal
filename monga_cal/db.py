@@ -57,8 +57,13 @@ class Database:
         if self.is_postgres and self._pool:
             return self._pool.getconn()
         else:
-            conn = sqlite3.connect(self.connection_string, check_same_thread=False)
+            conn = sqlite3.connect(self.connection_string, timeout=10.0, check_same_thread=False)
             conn.row_factory = sqlite3.Row
+            try:
+                conn.execute("PRAGMA journal_mode=WAL;")
+                conn.execute("PRAGMA busy_timeout=5000;")
+            except Exception:
+                pass
             return conn
 
     def _release_connection(self, conn):
@@ -103,6 +108,7 @@ class Database:
                     completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_task_history_task_id ON task_history(task_id);
 
                 CREATE TABLE IF NOT EXISTS estimate_cache (
                     content_hash TEXT PRIMARY KEY,
@@ -166,6 +172,7 @@ class Database:
                     completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS idx_task_history_completed ON task_history(completed_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_task_history_task_id ON task_history(task_id);
 
                 CREATE TABLE IF NOT EXISTS estimate_cache (
                     content_hash TEXT PRIMARY KEY,
@@ -282,6 +289,9 @@ class Database:
             VALUES (?, ?, CURRENT_TIMESTAMP)
         """
         self._execute(sql, (task_id, until_date.isoformat()), commit=True)
+
+    def clear_deferral(self, task_id: str):
+        self._execute("DELETE FROM task_deferrals WHERE task_id = ?", (task_id,), commit=True)
 
     def get_deferred_until(self, task_id: str) -> Optional[date]:
         sql = "SELECT deferred_until FROM task_deferrals WHERE task_id = ?"
@@ -438,6 +448,13 @@ class Database:
             VALUES (?, ?)
         """
         self._execute(sql, (plan_hash, json.dumps(plan_data)), commit=True)
+        try:
+            self._execute(
+                "DELETE FROM plan_history WHERE id NOT IN (SELECT id FROM plan_history ORDER BY id DESC LIMIT 50)",
+                commit=True,
+            )
+        except Exception:
+            pass
 
     def add_kid_star(self, kid_name: str, delta: int = 1, chore_description: str = "") -> Dict[str, Any]:
         sql = """
@@ -447,10 +464,10 @@ class Database:
         self._execute(sql, (kid_name.strip(), delta, chore_description.strip()), commit=True)
         return self.get_kids_star_summary()
 
-    def delete_kid_star(self, star_id: int) -> bool:
+    def delete_kid_star(self, star_id: int) -> Dict[str, Any]:
         sql = "DELETE FROM kid_stars WHERE id = ?"
         self._execute(sql, (star_id,), commit=True)
-        return True
+        return self.get_kids_star_summary()
 
     def get_kids_star_summary(self, default_kids: Optional[List[str]] = None) -> Dict[str, Any]:
         if default_kids is None:
@@ -494,6 +511,12 @@ class Database:
 
         timeseries_start = datetime.combine(date.today() - timedelta(days=6), datetime.min.time())
         ts_sql = """
+            SELECT kid_name, created_at::date as log_date, COALESCE(SUM(stars_delta), 0) as day_stars
+            FROM kid_stars
+            WHERE created_at >= ?
+            GROUP BY kid_name, created_at::date
+            ORDER BY log_date ASC
+        """ if self.is_postgres else """
             SELECT kid_name, date(created_at) as log_date, COALESCE(SUM(stars_delta), 0) as day_stars
             FROM kid_stars
             WHERE created_at >= ?
@@ -565,7 +588,7 @@ class Database:
             cursor.close()
             return result
         except Exception as e:
-            if commit and self.is_postgres:
+            if self.is_postgres:
                 try:
                     conn.rollback()
                 except Exception:

@@ -1,4 +1,5 @@
 - alias: "Tablet - Start charging at 40%"
+  id: tablet_start_charging_40
   description: "Turn Kasa on when tablet drops low"
   mode: single
   trigger:
@@ -11,13 +12,14 @@
       state: "off"
     - condition: numeric_state
       entity_id: sensor.100146663_battery_temperature
-      below: 40
+      below: 35
   action:
     - action: switch.turn_on
       target:
         entity_id: switch.smart_plug
 
 - alias: "Tablet - Stop charging at 80%"
+  id: tablet_stop_charging_80
   description: "Turn Kasa off to avoid swelling"
   mode: single
   trigger:
@@ -34,6 +36,7 @@
         entity_id: switch.smart_plug
 
 - alias: "Tablet - Safety cutoff at 85%"
+  id: tablet_safety_cutoff_85
   description: "Failsafe if 80% automation missed"
   mode: single
   trigger:
@@ -45,56 +48,175 @@
       target:
         entity_id: switch.smart_plug
 
-- alias: Tablet Screen - On in morning when home
+- alias: "Tablet - Charging watchdog cutoff"
+  id: tablet_charge_watchdog_timeout
+  description: "Turn off smart plug if charging continuously for over 4 hours (safety failsafe)"
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: switch.smart_plug
+      to: "on"
+      for:
+        hours: 4
+  action:
+    - action: switch.turn_off
+      target:
+        entity_id: switch.smart_plug
+    - action: persistent_notification.create
+      data:
+        title: "Tablet charge watchdog cutoff"
+        message: "Smart plug was on for 4 continuous hours — charging stopped as a precaution."
+        notification_id: tablet_charge_watchdog
+
+- alias: "Tablet Screen - On in morning"
   id: tablet_screen_on_morning
+  description: "Wake tablet and turn helper ON at 6 AM"
+  mode: single
   trigger:
     - platform: time
-      at: "07:00:00"
+      at: "06:00:00"
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.100146663_battery_temperature
+      below: 43
+  action:
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.tablet_screen
+
+- alias: "Tablet Screen - Off at night"
+  id: tablet_screen_off_night
+  description: "Turn helper OFF and sleep screen at 10 PM"
+  mode: single
+  trigger:
+    - platform: time
+      at: "22:00:00"
+  action:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.tablet_screen
+
+- alias: "Tablet Screen - Helper State Handler"
+  id: tablet_screen_helper_handler
+  description: "Wake or sleep tablet screen when input_boolean.tablet_screen changes"
+  mode: restart
+  trigger:
     - platform: state
-      entity_id: person.rohan
-      to: "home"
+      entity_id: input_boolean.tablet_screen
+  action:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: input_boolean.tablet_screen
+              state: "on"
+          sequence:
+            - action: notify.mobile_app_100146663
+              data:
+                message: command_screen_off_timeout
+                data:
+                  command: 1800000
+                  ttl: 0
+                  priority: high
+            - action: notify.mobile_app_100146663
+              data:
+                message: command_screen_on
+                data:
+                  command: keep_screen_on
+                  ttl: 0
+                  priority: high
+            - action: notify.mobile_app_100146663
+              data:
+                message: command_webview
+                data:
+                  command: "/dashboard-calendar"
+                  ttl: 0
+                  priority: high
+            - action: notify.mobile_app_100146663
+              data:
+                message: command_auto_screen_brightness
+                data:
+                  command: "turn_off"
+                  ttl: 0
+                  priority: high
+            - action: notify.mobile_app_100146663
+              data:
+                message: command_screen_brightness_level
+                data:
+                  command: "{{ ((states('input_number.tablet_brightness') | float(50) / 100) * 255) | round(0) | int }}"
+                  ttl: 0
+                  priority: high
+        - conditions:
+            - condition: state
+              entity_id: input_boolean.tablet_screen
+              state: "off"
+          sequence:
+            - action: notify.mobile_app_100146663
+              data:
+                message: command_screen_on
+                data:
+                  command: keep_screen_off
+                  ttl: 0
+                  priority: high
+            - delay: "00:00:01"
+            - action: notify.mobile_app_100146663
+              data:
+                message: command_screen_off_timeout
+                data:
+                  command: 5000
+                  ttl: 0
+                  priority: high
+            - delay: "00:00:01"
+            - action: notify.mobile_app_100146663
+              data:
+                message: command_screen_brightness_level
+                data:
+                  command: 0
+                  ttl: 0
+                  priority: high
+
+- alias: "Tablet Screen - Keep alive during day"
+  id: tablet_screen_keep_alive_day
+  description: "Re-assert daytime timeout and wake screen so dashboard stays visible"
+  mode: single
+  trigger:
+    - platform: time_pattern
+      minutes: "/15"
+    - platform: homeassistant
+      event: start
   condition:
     - condition: time
-      after: "07:00:00"
+      after: "06:00:00"
       before: "22:00:00"
     - condition: state
-      entity_id: person.rohan
-      state: "home"
+      entity_id: input_boolean.tablet_screen
+      state: "on"
     - condition: numeric_state
       entity_id: sensor.100146663_battery_temperature
       below: 43
   action:
     - action: notify.mobile_app_100146663
       data:
+        message: command_screen_off_timeout
+        data:
+          command: 1800000
+          ttl: 0
+          priority: high
+    - action: notify.mobile_app_100146663
+      data:
         message: command_screen_on
-    - action: notify.mobile_app_100146663
-      data:
-        message: command_screen_off_timeout
         data:
-          command: 600000
-
-- alias: Tablet Screen - Off at night or away
-  id: tablet_screen_off_night
-  trigger:
-    - platform: time
-      at: "22:00:00"
-    - platform: state
-      entity_id: person.rohan
-      to: "not_home"
-  action:
-    - action: notify.mobile_app_100146663
-      data:
-        message: command_screen_off_timeout
-        data:
-          command: 5000
+          command: keep_screen_on
+          ttl: 0
+          priority: high
 
 - alias: "Tablet - Battery overheat: stop charging"
-  description: "Stop charging if battery gets hot; resume only once cooled"
+  id: tablet_battery_overheat_stop_charge
+  description: "Stop charging if battery gets hot (35°C); resume only once cooled"
   mode: single
   trigger:
     - platform: numeric_state
       entity_id: sensor.100146663_battery_temperature
-      above: 43
+      above: 35
       for:
         minutes: 2
   action:
@@ -104,16 +226,17 @@
     - action: persistent_notification.create
       data:
         title: "Tablet battery overheating"
-        message: "Battery at {{ states('sensor.100146663_battery_temperature') }}°C — charging stopped as a precaution."
+        message: "Battery at {{ states('sensor.100146663_battery_temperature') }}°C — charging stopped as a precaution (cutoff: 35°C)."
         notification_id: tablet_overheat
 
 - alias: "Tablet - Battery critical temp: screen off"
-  description: "Kill screen heat too if temp keeps climbing"
+  id: tablet_battery_critical_temp_screen_off
+  description: "Kill screen heat too if temp reaches 43°C"
   mode: single
   trigger:
     - platform: numeric_state
       entity_id: sensor.100146663_battery_temperature
-      above: 48
+      above: 43
       for:
         minutes: 1
   action:
@@ -122,22 +245,39 @@
         entity_id: switch.smart_plug
     - action: notify.mobile_app_100146663
       data:
+        message: command_screen_on
+        data:
+          command: keep_screen_off
+          ttl: 0
+          priority: high
+    - action: notify.mobile_app_100146663
+      data:
         message: command_screen_off_timeout
         data:
           command: 5000
+          ttl: 0
+          priority: high
+    - action: notify.mobile_app_100146663
+      data:
+        message: command_screen_brightness_level
+        data:
+          command: 1
+          ttl: 0
+          priority: high
     - action: persistent_notification.create
       data:
         title: "Tablet battery critical temp"
-        message: "Battery at {{ states('sensor.100146663_battery_temperature') }}°C — screen forced off."
+        message: "Battery at {{ states('sensor.100146663_battery_temperature') }}°C — screen forced off (cutoff: 43°C)."
         notification_id: tablet_overheat_critical
 
 - alias: "Tablet - Battery cooled: clear alerts"
-  description: "Dismiss overheat notifications once temp recovers"
+  id: tablet_battery_cooled_clear_alerts
+  description: "Dismiss overheat and watchdog notifications once temp drops below 30°C"
   mode: single
   trigger:
     - platform: numeric_state
       entity_id: sensor.100146663_battery_temperature
-      below: 38
+      below: 30
   action:
     - action: persistent_notification.dismiss
       data:
@@ -145,3 +285,124 @@
     - action: persistent_notification.dismiss
       data:
         notification_id: tablet_overheat_critical
+    - action: persistent_notification.dismiss
+      data:
+        notification_id: tablet_charge_watchdog
+
+- alias: "Tablet - Reload Automations Webhook"
+  id: tablet_reload_automations_webhook
+  description: "Allows local script to reload automations via HTTP POST without container restart"
+  mode: single
+  trigger:
+    - platform: webhook
+      webhook_id: reload_monga_automations
+      allowed_methods:
+        - POST
+      local_only: true
+  action:
+    - action: automation.reload
+
+- alias: "Tablet Screen - Set Brightness from Helper"
+  id: tablet_set_brightness_helper
+  description: "Send brightness command to tablet when helper changes"
+  mode: restart
+  trigger:
+    - platform: state
+      entity_id: input_number.tablet_brightness
+  condition:
+    - condition: state
+      entity_id: input_boolean.tablet_screen
+      state: "on"
+  action:
+    - action: notify.mobile_app_100146663
+      data:
+        message: command_auto_screen_brightness
+        data:
+          command: "turn_off"
+          ttl: 0
+          priority: high
+    - action: notify.mobile_app_100146663
+      data:
+        message: command_screen_brightness_level
+        data:
+          command: "{{ ((states('input_number.tablet_brightness') | float(50) / 100) * 255) | round(0) | int }}"
+          ttl: 0
+          priority: high
+
+- alias: "Tablet - Wake Screen Webhook"
+  id: tablet_wake_screen_webhook
+  description: "Allows waking tablet screen on demand via HTTP POST"
+  mode: restart
+  trigger:
+    - platform: webhook
+      webhook_id: wake_tablet_screen
+      allowed_methods:
+        - POST
+      local_only: true
+  action:
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.tablet_screen
+    - action: automation.trigger
+      target:
+        entity_id: automation.tablet_screen_helper_state_handler
+      data:
+        skip_condition: true
+
+- alias: "Tablet - Sleep Screen Webhook"
+  id: tablet_sleep_screen_webhook
+  description: "Allows putting tablet screen to sleep on demand via HTTP POST"
+  mode: restart
+  trigger:
+    - platform: webhook
+      webhook_id: sleep_tablet_screen
+      allowed_methods:
+        - POST
+      local_only: true
+  action:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.tablet_screen
+    - action: automation.trigger
+      target:
+        entity_id: automation.tablet_screen_helper_state_handler
+      data:
+        skip_condition: true
+
+- alias: "Tablet - Open Profile Webhook"
+  id: tablet_open_profile_webhook
+  description: "Navigate tablet to profile page to toggle theme"
+  mode: single
+  trigger:
+    - platform: webhook
+      webhook_id: open_tablet_profile
+      allowed_methods:
+        - POST
+      local_only: true
+  action:
+    - action: notify.mobile_app_100146663
+      data:
+        message: command_webview
+        data:
+          command: "/profile"
+          ttl: 0
+          priority: high
+
+- alias: "Tablet - Open Calendar Webhook"
+  id: tablet_open_calendar_webhook
+  description: "Navigate tablet back to calendar dashboard"
+  mode: single
+  trigger:
+    - platform: webhook
+      webhook_id: open_tablet_calendar
+      allowed_methods:
+        - POST
+      local_only: true
+  action:
+    - action: notify.mobile_app_100146663
+      data:
+        message: command_webview
+        data:
+          command: "/dashboard-calendar"
+          ttl: 0
+          priority: high
