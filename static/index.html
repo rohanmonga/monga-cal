@@ -34,7 +34,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css?v=23">
+  <link rel="stylesheet" href="app.css?v=26">
 </head>
 <body>
 
@@ -137,13 +137,13 @@
               <div class="kids-arena-icon-badge" aria-hidden="true">⭐</div>
               <div>
                 <div class="kids-arena-heading-row">
-                  <h2 class="kids-arena-title">Kids Chore Stars Arena</h2>
+                  <h2 class="kids-arena-title">Kids Chore Stars</h2>
                   <span class="kids-family-vault-pill" id="kidsArenaTotalBadge">🏆 0 Total Stars</span>
                 </div>
-                <p class="kids-arena-subtitle">Tap any chore mission on your card to earn instant stars!</p>
+                <p class="kids-arena-subtitle">Reach 10 stars to unlock your next reward milestone!</p>
               </div>
             </div>
-            <button class="chip-add-star" id="btnQuickRewardModal">+ Custom Chore</button>
+            <button class="chip-add-star" id="btnQuickRewardModal">+ Log Chore</button>
           </div>
 
           <!-- Dual Hero Kid Player Cards (Vivaan & Vrihaan) -->
@@ -172,95 +172,69 @@
         </div>
       </section>
 
-      <!-- STAGE 2 (RIGHT 50%): EXECUTIVE FOCUS, CAPACITY & HORIZON STUDIO -->
+      <!-- STAGE 2 (RIGHT 50%): EXECUTIVE FOCUS & 3-DAY HORIZON STUDIO -->
       <section class="os-main-studio">
 
-        <!-- TOP EXECUTIVE DECK: FOCUS COCKPIT + 3-SLOT DAILY LOADOUT SIDE BY SIDE -->
-        <div class="studio-top-deck">
-          <!-- MODULE 1: FOCUS COCKPIT + LIVE SPRINT TIMER -->
-          <div class="bento-tile hero-focus-tile" id="heroFocusTile">
-            <div class="tile-header">
-              <div class="badge-status-pill focus-pill" id="heroFocusBadge">
-                <span class="pulse-dot"></span>
-                <span id="heroFocusBadgeText">CURRENT FOCUS</span>
+        <!-- TOP FOCUS COCKPIT (FULL WIDTH OF RIGHT STAGE) -->
+        <div class="bento-tile hero-focus-tile" id="heroFocusTile">
+          <div class="hero-focus-main-row">
+            <div class="hero-focus-info">
+              <div class="hero-top-meta-row">
+                <div class="badge-status-pill focus-pill" id="heroFocusBadge">
+                  <span class="pulse-dot"></span>
+                  <span id="heroFocusBadgeText">CURRENT FOCUS</span>
+                </div>
+                <span class="hero-time-range" id="heroTimeRange">--:-- - --:--</span>
+                <span class="tile-time-tag" id="heroTimeRemaining">--</span>
               </div>
-              <div class="tile-time-tag" id="heroTimeRemaining">--</div>
-            </div>
-
-            <div class="hero-body">
-              <div class="hero-time-range" id="heroTimeRange">--:-- - --:--</div>
               <h2 class="hero-task-title" id="heroTaskTitle">Loading schedule...</h2>
               <p class="hero-task-directive" id="heroTaskDirective">Synchronizing your active workload.</p>
             </div>
 
-            <!-- LIVE INTERACTIVE FOCUS SPRINT TIMER -->
-            <div class="focus-sprint-bar" id="heroTimerBar">
-              <div class="sprint-timer-left">
-                <span class="sprint-label">SPRINT TIMER</span>
-                <span class="sprint-digits" id="heroTimerDisplay">25:00</span>
+            <div class="hero-focus-controls-col">
+              <!-- LIVE INTERACTIVE FOCUS SPRINT TIMER -->
+              <div class="focus-sprint-bar" id="heroTimerBar">
+                <div class="sprint-timer-left">
+                  <span class="sprint-label">SPRINT</span>
+                  <span class="sprint-digits" id="heroTimerDisplay">25:00</span>
+                </div>
+                <div class="sprint-timer-controls">
+                  <button type="button" class="btn-sprint-toggle" id="heroTimerToggleBtn">▶ Start</button>
+                  <button type="button" class="btn-sprint-reset" id="heroTimerResetBtn" title="Reset Timer">↺</button>
+                </div>
               </div>
-              <div class="sprint-timer-controls">
-                <button type="button" class="btn-sprint-toggle" id="heroTimerToggleBtn">▶ Start</button>
-                <button type="button" class="btn-sprint-reset" id="heroTimerResetBtn" title="Reset Timer">↺</button>
+
+              <div class="hero-actions" id="heroActionsGroup">
+                <button class="btn-hero-complete" id="heroCompleteBtn">
+                  <span>✓ Complete</span>
+                </button>
+                <button class="btn-hero-snooze" id="heroSnoozeBtn">
+                  <span>Snooze 1d</span>
+                </button>
               </div>
-            </div>
-
-            <div class="hero-progress-track" id="heroProgressTrack">
-              <div class="hero-progress-fill" id="heroProgressFill" style="width: 0%;"></div>
-            </div>
-
-            <div class="hero-actions" id="heroActionsGroup">
-              <button class="btn-hero-complete" id="heroCompleteBtn">
-                <span>Mark Complete</span>
-              </button>
-              <button class="btn-hero-snooze" id="heroSnoozeBtn">
-                <span>Snooze 1d</span>
-              </button>
             </div>
           </div>
 
-          <!-- MODULE 2: TACTILE 3-SLOT DAILY CAPACITY LOADOUT -->
-          <div class="bento-tile capacity-tile" id="bentoCapacityTile">
-            <div class="tile-header">
-              <h3 class="tile-title" style="white-space: nowrap;">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--primary-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
-                <span>Daily Slot Loadout</span>
-              </h3>
-              <span class="capacity-ratio-tag" id="capacityRatioTag" style="white-space: nowrap;">0 / 3</span>
-            </div>
-
-            <!-- Interactive 3-Slot Bays -->
-            <div class="capacity-slots-grid" id="capacitySlotsGrid"></div>
-
-            <div class="capacity-meter-wrapper">
-              <div class="capacity-meter-track">
-                <div class="capacity-meter-fill" id="capacityMeterFill" style="width: 0%;"></div>
-                <div class="capacity-meter-scheduled" id="capacityMeterScheduled" style="width: 0%;"></div>
-              </div>
-            </div>
-
-            <div class="capacity-meta-row">
-              <span id="capacityMetaDetail">0 completed • 0 scheduled</span>
-              <span class="capacity-pill-tag" id="capacitySlotsLeft">3 open slots</span>
-            </div>
+          <div class="hero-progress-track" id="heroProgressTrack">
+            <div class="hero-progress-fill" id="heroProgressFill" style="width: 0%;"></div>
           </div>
         </div>
 
-        <!-- MIDDLE STUDIO: MULTI-VIEW PLANNER (5-DAY BOARD | TODAY | 14-DAY | BACKLOG) -->
+        <!-- MIDDLE STUDIO: MULTI-VIEW PLANNER (3-DAY BOARD | TODAY | 14-DAY | BACKLOG) -->
         <div class="bento-tile schedule-stream-tile">
           <div class="tile-header sticky-header stream-header-bar">
             <div class="studio-title-cluster">
               <h2 class="tile-title-main">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--primary-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                <span id="streamMainHeading">5-Day Horizon Board</span>
+                <span id="streamMainHeading">3-Day Horizon Board</span>
               </h2>
               <p class="tile-subtitle" id="agendaTodaySubtitle">Autonomous CP-SAT time-blocked horizon</p>
             </div>
             <div class="schedule-stream-actions">
               <div class="stream-view-tabs" id="streamViewTabs" role="tablist">
                 <button class="stream-tab-btn active" data-view="board" id="streamTabBoard">
-                  <span>🗓️ Week Board</span>
-                  <span class="tab-count" id="tabCountBoard">5d</span>
+                  <span>🗓️ 3-Day Board</span>
+                  <span class="tab-count" id="tabCountBoard">3d</span>
                 </button>
                 <button class="stream-tab-btn" data-view="today" id="streamTabToday">
                   <span>Today</span>
@@ -279,7 +253,7 @@
             </div>
           </div>
 
-          <!-- Dynamic Workspace Canvas (5-Day Columns Board OR Stream OR Queue) -->
+          <!-- Dynamic Workspace Canvas (3-Day Columns Board OR Stream OR Queue) -->
           <div class="schedule-stream-list" id="agendaTimeline">
             <!-- Dynamic Content Inserted Here -->
           </div>
@@ -557,9 +531,6 @@
   <!-- Non-Blocking Toast Notification Stack -->
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <!-- Full-Screen Pitch-Black Sleep Curtain (Tap Anywhere to Wake) -->
-  <div id="screenSleepOverlay" class="screen-sleep-overlay hidden" aria-hidden="true"></div>
-
-  <script src="app.js?v=23"></script>
+  <script src="app.js?v=26"></script>
 </body>
 </html>

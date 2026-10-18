@@ -126,13 +126,6 @@
                   priority: high
             - action: notify.mobile_app_100146663
               data:
-                message: command_webview
-                data:
-                  command: "/dashboard-calendar"
-                  ttl: 0
-                  priority: high
-            - action: notify.mobile_app_100146663
-              data:
                 message: command_auto_screen_brightness
                 data:
                   command: "turn_off"
@@ -157,20 +150,25 @@
                   command: keep_screen_off
                   ttl: 0
                   priority: high
-            - delay: "00:00:01"
             - action: notify.mobile_app_100146663
               data:
-                message: command_screen_off_timeout
+                message: command_auto_screen_brightness
                 data:
-                  command: 5000
+                  command: "turn_off"
                   ttl: 0
                   priority: high
-            - delay: "00:00:01"
             - action: notify.mobile_app_100146663
               data:
                 message: command_screen_brightness_level
                 data:
-                  command: 0
+                  command: 1
+                  ttl: 0
+                  priority: high
+            - action: notify.mobile_app_100146663
+              data:
+                message: command_screen_off_timeout
+                data:
+                  command: 1000
                   ttl: 0
                   priority: high
 

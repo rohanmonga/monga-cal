@@ -489,28 +489,42 @@ async def complete_task(req: TaskCompletionRequest, background_tasks: Background
     background_tasks.add_task(_complete_and_resync)
     return {"message": "Task completion recorded & reschedule triggered", "record": record.model_dump(mode="json")}
 
+_tablet_screen_sleeping: bool = False
+
 def _post_ha_webhook(url: str):
     import urllib.request
     req = urllib.request.Request(url, data=b"", method="POST")
     urllib.request.urlopen(req, timeout=3)
 
+@app.get("/api/tablet/screen/status")
+async def get_tablet_screen_status():
+    return {"sleeping": _tablet_screen_sleeping}
+
 @app.post("/api/tablet/screen/sleep")
-async def sleep_tablet():
+async def sleep_tablet(from_ha: bool = False):
+    global _tablet_screen_sleeping
+    _tablet_screen_sleeping = True
+    if from_ha:
+        return {"status": "ok", "action": "sleep", "sleeping": True}
     try:
         await asyncio.to_thread(_post_ha_webhook, "http://192.168.86.32:8123/api/webhook/sleep_tablet_screen")
-        return {"status": "ok", "action": "sleep"}
+        return {"status": "ok", "action": "sleep", "sleeping": True}
     except Exception as e:
         logger.warning(f"Failed to sleep tablet screen via HA: {e}")
-        return {"status": "error", "error": str(e)}
+        return {"status": "error", "error": str(e), "sleeping": True}
 
 @app.post("/api/tablet/screen/wake")
-async def wake_tablet():
+async def wake_tablet(from_ha: bool = False):
+    global _tablet_screen_sleeping
+    _tablet_screen_sleeping = False
+    if from_ha:
+        return {"status": "ok", "action": "wake", "sleeping": False}
     try:
         await asyncio.to_thread(_post_ha_webhook, "http://192.168.86.32:8123/api/webhook/wake_tablet_screen")
-        return {"status": "ok", "action": "wake"}
+        return {"status": "ok", "action": "wake", "sleeping": False}
     except Exception as e:
         logger.warning(f"Failed to wake tablet screen via HA: {e}")
-        return {"status": "error", "error": str(e)}
+        return {"status": "error", "error": str(e), "sleeping": False}
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():

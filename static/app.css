@@ -2321,61 +2321,85 @@ body {
   overflow: hidden;
 }
 
-.studio-top-deck {
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: 1.08fr 0.92fr;
-  gap: clamp(8px, 0.8vw, 12px);
-  align-items: stretch;
-}
-
 .bento-tile {
-  padding: clamp(10px, 1.2vh, 16px) clamp(11px, 1.1vw, 18px);
-  border-radius: 13px;
+  padding: clamp(12px, 1.5vh, 20px) clamp(14px, 1.3vw, 22px);
+  border-radius: 14px;
   box-shadow: var(--card-shadow);
 }
 
 .tile-header {
-  margin-bottom: clamp(5px, 0.7vh, 10px);
+  margin-bottom: clamp(6px, 0.8vh, 12px);
 }
 
-/* 3. FOCUS COCKPIT & LIVE SPRINT TIMER (TOP-LEFT OF RIGHT STAGE) */
+/* 3. WIDE HORIZONTAL FOCUS COCKPIT & LIVE SPRINT TIMER (FULL WIDTH OF RIGHT STAGE) */
 .hero-focus-tile {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  gap: clamp(8px, 1vh, 12px);
   min-width: 0;
 }
-.hero-body {
-  margin: 2px 0 clamp(4px, 0.6vh, 8px) 0;
+
+.hero-focus-main-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(14px, 1.5vw, 24px);
 }
+
+.hero-focus-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(3px, 0.45vh, 6px);
+}
+
+.hero-top-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .hero-time-range {
-  font-size: clamp(10px, 1.1vh, 13px);
-  margin-bottom: 1px;
+  font-size: clamp(11px, 1.25vh, 14px);
+  margin-bottom: 0;
 }
+
 .hero-task-title {
-  font-size: clamp(14px, 1.65vh, 21px);
-  margin-bottom: 2px;
+  font-size: clamp(16px, 2vh, 24px);
+  margin-bottom: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .hero-task-directive {
-  font-size: clamp(10.5px, 1.15vh, 13.5px);
+  font-size: clamp(11.5px, 1.3vh, 14.5px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.hero-focus-controls-col {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(6px, 0.8vh, 10px);
+  min-width: clamp(210px, 18vw, 280px);
 }
 
 .focus-sprint-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: clamp(4px, 0.6vh, 8px) clamp(8px, 0.8vw, 12px);
-  border-radius: 9px;
+  gap: 10px;
+  padding: clamp(5px, 0.7vh, 9px) clamp(10px, 0.9vw, 14px);
+  border-radius: 10px;
   background: rgba(0, 0, 0, 0.22);
   border: 1px solid var(--border-card);
-  margin-bottom: clamp(4px, 0.6vh, 8px);
+  margin-bottom: 0;
 }
 [data-theme="light"] .focus-sprint-bar {
   background: var(--bg-subtle);
@@ -2388,17 +2412,17 @@ body {
 .sprint-timer-left {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 7px;
 }
 .sprint-label {
-  font-size: clamp(8px, 0.9vh, 10.5px);
+  font-size: clamp(8.5px, 0.95vh, 11px);
   font-weight: 800;
   letter-spacing: 0.5px;
   color: var(--text-muted);
 }
 .sprint-digits {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(13.5px, 1.6vh, 20px);
+  font-size: clamp(14px, 1.7vh, 21px);
   font-weight: 700;
   color: var(--text-main);
 }
@@ -2409,15 +2433,15 @@ body {
 .sprint-timer-controls {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 .btn-sprint-toggle {
   background: var(--primary-soft);
   color: var(--primary-accent);
   border: 1px solid var(--badge-focus-border);
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: clamp(10px, 1.1vh, 13px);
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: clamp(10.5px, 1.15vh, 13.5px);
   font-weight: 800;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -2430,10 +2454,10 @@ body {
   background: transparent;
   color: var(--text-muted);
   border: 1px solid var(--border-card);
-  width: clamp(22px, 2.5vh, 30px);
-  height: clamp(22px, 2.5vh, 30px);
-  border-radius: 6px;
-  font-size: 11px;
+  width: clamp(24px, 2.7vh, 32px);
+  height: clamp(24px, 2.7vh, 32px);
+  border-radius: 7px;
+  font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -2443,111 +2467,24 @@ body {
 }
 
 .hero-progress-track {
-  margin-bottom: clamp(5px, 0.7vh, 9px);
-  height: 4px;
+  margin-bottom: 0;
+  height: 5px;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .btn-hero-complete,
 .btn-hero-snooze {
-  min-height: clamp(30px, 3.4vh, 42px);
-  padding: clamp(4px, 0.55vh, 8px) 10px;
-  border-radius: 8px;
-  font-size: clamp(11px, 1.2vh, 14px);
+  min-height: clamp(34px, 3.8vh, 44px);
+  padding: clamp(5px, 0.65vh, 9px) 12px;
+  border-radius: 9px;
+  font-size: clamp(11.5px, 1.3vh, 14.5px);
 }
 
-/* 4. TACTILE 3-SLOT DAILY CAPACITY BAYS (TOP-RIGHT OF RIGHT STAGE) */
-.capacity-tile {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-width: 0;
-}
-.capacity-slots-grid {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(3px, 0.45vh, 6px);
-  margin-bottom: clamp(4px, 0.6vh, 8px);
-}
-
-.capacity-slot-bay {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: clamp(4px, 0.55vh, 7px) 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border-card);
-  background: var(--bg-subtle);
-  font-size: clamp(10px, 1.15vh, 13px);
-  transition: all 0.15s ease;
-}
-.capacity-slot-bay.slot-done {
-  background: var(--done-btn-bg);
-  border-color: var(--done-btn-border);
-  color: var(--done-btn-text);
-}
-.capacity-slot-bay.slot-scheduled {
-  background: var(--primary-soft);
-  border-color: var(--badge-focus-border);
-  color: var(--text-main);
-  cursor: pointer;
-}
-.capacity-slot-bay.slot-open {
-  border-style: dashed;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.capacity-slot-bay.slot-open:hover {
-  border-color: var(--primary-accent);
-  color: var(--primary-accent);
-  background: var(--primary-soft);
-}
-
-.slot-bay-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 1;
-}
-.slot-bay-index {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(8.5px, 0.95vh, 11px);
-  font-weight: 700;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.2);
-  color: inherit;
-  white-space: nowrap;
-}
-[data-theme="light"] .slot-bay-index {
-  background: rgba(15, 23, 42, 0.07);
-}
-.slot-bay-title {
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.slot-bay-meta {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(8.5px, 0.95vh, 11px);
-  font-weight: 700;
-  opacity: 0.85;
-  white-space: nowrap;
-}
-
-.capacity-meter-wrapper {
-  margin: 2px 0 clamp(4px, 0.5vh, 8px) 0;
-}
-.capacity-meter-track {
-  height: 5px;
-}
-.capacity-meta-row {
-  font-size: clamp(9.5px, 1.05vh, 12px);
-}
-
-/* 5. STAGE 1 (LEFT 50%): FULL-STAGE KIDS CHORE STARS ARENA (16:10 FITTED) */
+/* 4. STAGE 1 (LEFT 50%): SPACIOUS KIDS CHORE STARS ARENA */
 .kids-hero-arena {
   flex: 1;
   min-height: 0;
@@ -2556,8 +2493,8 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: clamp(8px, 1.1vh, 16px);
-  padding: clamp(10px, 1.35vh, 20px) clamp(12px, 1.2vw, 22px);
+  gap: clamp(12px, 1.5vh, 20px);
+  padding: clamp(14px, 1.8vh, 24px) clamp(14px, 1.4vw, 24px);
   background:
     radial-gradient(ellipse 85% 40% at 50% 0%, rgba(245, 158, 11, 0.13), transparent),
     var(--bg-card);
@@ -2570,29 +2507,29 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 0;
-  padding-bottom: clamp(6px, 0.85vh, 12px);
+  padding-bottom: clamp(8px, 1.1vh, 14px);
   border-bottom: 1px solid var(--border-card);
 }
 
 .kids-arena-title-group {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
 .kids-arena-icon-badge {
-  width: clamp(34px, 4vh, 46px);
-  height: clamp(34px, 4vh, 46px);
-  border-radius: 11px;
+  width: clamp(38px, 4.4vh, 50px);
+  height: clamp(38px, 4.4vh, 50px);
+  border-radius: 12px;
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.15));
   border: 1px solid rgba(245, 158, 11, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(17px, 2vh, 24px);
+  font-size: clamp(19px, 2.2vh, 26px);
   flex-shrink: 0;
   box-shadow: 0 4px 14px rgba(245, 158, 11, 0.2);
 }
@@ -2600,12 +2537,12 @@ body {
 .kids-arena-heading-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .kids-arena-title {
-  font-size: clamp(15px, 1.85vh, 22px);
+  font-size: clamp(16px, 2.1vh, 24px);
   font-weight: 800;
   letter-spacing: -0.4px;
   color: var(--text-main);
@@ -2615,9 +2552,9 @@ body {
 
 .kids-family-vault-pill {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(9.5px, 1.1vh, 13px);
+  font-size: clamp(10.5px, 1.2vh, 14px);
   font-weight: 800;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 99px;
   background: rgba(245, 158, 11, 0.16);
   color: #fbbf24;
@@ -2630,30 +2567,30 @@ body {
 }
 
 .kids-arena-subtitle {
-  font-size: clamp(10px, 1.15vh, 13.5px);
+  font-size: clamp(11px, 1.25vh, 14px);
   font-weight: 600;
   color: var(--text-muted);
-  margin: 1px 0 0 0;
+  margin: 2px 0 0 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .kids-hero-arena .chip-add-star {
-  min-height: clamp(32px, 3.8vh, 44px);
-  padding: clamp(5px, 0.7vh, 10px) clamp(10px, 1vw, 16px);
-  font-size: clamp(11px, 1.25vh, 14.5px);
+  min-height: clamp(36px, 4.2vh, 48px);
+  padding: clamp(6px, 0.8vh, 12px) clamp(12px, 1.1vw, 18px);
+  font-size: clamp(12px, 1.35vh, 15.5px);
   font-weight: 800;
-  border-radius: 9px;
+  border-radius: 10px;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
-/* Dual Hero Kid Player Cards */
+/* Dual Hero Kid Player Cards — Spacious & Uncluttered */
 .kids-hero-arena .kids-profiles-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(8px, 1vw, 16px);
+  gap: clamp(12px, 1.3vw, 20px);
   margin-bottom: 0;
   flex: 1;
   min-height: 0;
@@ -2662,14 +2599,14 @@ body {
 .kids-hero-arena .kid-profile-card {
   background: var(--bg-subtle);
   border: 1px solid var(--border-card);
-  border-radius: 14px;
-  padding: clamp(10px, 1.3vh, 18px);
+  border-radius: 16px;
+  padding: clamp(14px, 1.8vh, 24px);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   align-items: stretch;
   text-align: left;
-  gap: clamp(6px, 0.85vh, 13px);
+  gap: clamp(10px, 1.4vh, 18px);
   min-height: 0;
   position: relative;
   overflow: hidden;
@@ -2692,15 +2629,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
 }
 
 .kid-level-badge {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(9px, 1.05vh, 12.5px);
+  font-size: clamp(10px, 1.15vh, 13.5px);
   font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 6px;
+  padding: 3px 9px;
+  border-radius: 7px;
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   color: var(--text-main);
@@ -2710,9 +2647,9 @@ body {
 
 .kid-leader-pill,
 .kids-hero-arena .kid-today-stars {
-  font-size: clamp(9px, 1.05vh, 12px);
+  font-size: clamp(10px, 1.15vh, 13px);
   font-weight: 800;
-  padding: 2px 7px;
+  padding: 3px 9px;
   border-radius: 99px;
   margin-bottom: 0;
   white-space: nowrap;
@@ -2730,15 +2667,15 @@ body {
 .kid-hero-identity {
   display: flex;
   align-items: center;
-  gap: clamp(8px, 0.8vw, 14px);
-  padding: 2px 0;
+  gap: clamp(10px, 1vw, 16px);
+  padding: clamp(4px, 0.6vh, 10px) 0;
 }
 
 .kids-hero-arena .kid-avatar {
-  width: clamp(36px, 4.4vh, 54px);
-  height: clamp(36px, 4.4vh, 54px);
-  border-radius: 12px;
-  font-size: clamp(18px, 2.2vh, 28px);
+  width: clamp(44px, 5.4vh, 64px);
+  height: clamp(44px, 5.4vh, 64px);
+  border-radius: 14px;
+  font-size: clamp(22px, 2.8vh, 34px);
   margin-bottom: 0;
   flex-shrink: 0;
 }
@@ -2749,46 +2686,46 @@ body {
 }
 
 .kids-hero-arena .kid-name {
-  font-size: clamp(15px, 1.9vh, 23px);
+  font-size: clamp(18px, 2.3vh, 28px);
   font-weight: 800;
-  letter-spacing: -0.3px;
+  letter-spacing: -0.4px;
   color: var(--text-main);
   line-height: 1.15;
 }
 
 .kid-streak-sub {
-  font-size: clamp(9.5px, 1.1vh, 13px);
+  font-size: clamp(11px, 1.3vh, 15px);
   font-weight: 700;
   color: var(--success-emerald);
-  margin-top: 1px;
+  margin-top: 3px;
 }
 
 .kids-hero-arena .kid-stars-count {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(20px, 2.7vh, 36px);
+  font-size: clamp(26px, 3.5vh, 44px);
   font-weight: 800;
   color: var(--text-main);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   margin: 0;
-  padding: clamp(3px, 0.5vh, 7px) clamp(8px, 0.8vw, 14px);
-  border-radius: 10px;
+  padding: clamp(6px, 0.8vh, 12px) clamp(10px, 1vw, 18px);
+  border-radius: 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 .kids-hero-arena .kid-stars-count svg {
-  width: clamp(16px, 2vh, 26px);
-  height: clamp(16px, 2vh, 26px);
+  width: clamp(20px, 2.6vh, 32px);
+  height: clamp(20px, 2.6vh, 32px);
 }
 
-/* 10-Star Visual Milestone Grid */
+/* Spacious 10-Star Visual Milestone Grid */
 .kid-goal-wrapper {
   width: 100%;
   margin: 0;
-  padding: clamp(6px, 0.85vh, 12px) clamp(8px, 0.8vw, 14px);
-  border-radius: 10px;
+  padding: clamp(10px, 1.4vh, 18px) clamp(10px, 1vw, 16px);
+  border-radius: 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-card);
 }
@@ -2796,26 +2733,26 @@ body {
 .kid-goal-label {
   display: flex;
   justify-content: space-between;
-  font-size: clamp(9px, 1.05vh, 12.5px);
+  font-size: clamp(10.5px, 1.25vh, 14px);
   font-weight: 800;
   color: var(--text-muted);
-  margin-bottom: clamp(4px, 0.5vh, 7px);
+  margin-bottom: clamp(6px, 0.8vh, 10px);
 }
 
 .kid-star-slots-grid {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
-  gap: clamp(2px, 0.3vw, 5px);
-  margin-bottom: clamp(5px, 0.6vh, 8px);
+  gap: clamp(3px, 0.4vw, 6px);
+  margin-bottom: clamp(8px, 1vh, 12px);
 }
 
 .kid-star-slot {
-  height: clamp(19px, 2.35vh, 32px);
-  border-radius: 5px;
+  height: clamp(24px, 3.1vh, 40px);
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(10.5px, 1.35vh, 17px);
+  font-size: clamp(12.5px, 1.65vh, 21px);
   border: 1px solid var(--border-card);
   background: var(--bg-subtle);
   transition: transform 0.15s ease;
@@ -2833,7 +2770,7 @@ body {
 
 .kid-goal-track {
   width: 100%;
-  height: clamp(4px, 0.55vh, 7px);
+  height: clamp(6px, 0.8vh, 9px);
   background: var(--border-card);
   border-radius: 99px;
   overflow: hidden;
@@ -2845,108 +2782,31 @@ body {
   transition: width 0.3s ease;
 }
 
-/* 1-Tap Chore Missions Grid on Each Kid Card */
-.kid-missions-section {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(4px, 0.55vh, 7px);
-  flex: 1;
-  min-height: 0;
-  justify-content: center;
-}
-
-.kid-missions-heading {
-  font-size: clamp(8.5px, 0.95vh, 11.5px);
-  font-weight: 800;
-  letter-spacing: 0.6px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-
-.kid-mission-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(5px, 0.6vh, 9px);
-  flex: 1;
-  min-height: 0;
-}
-
-.btn-kid-mission {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  min-height: clamp(32px, 4vh, 52px);
-  padding: clamp(5px, 0.7vh, 11px) clamp(7px, 0.7vw, 12px);
-  border-radius: 9px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-card);
-  color: var(--text-main);
-  font-size: clamp(11px, 1.3vh, 15.5px);
-  font-weight: 700;
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: all 0.14s ease;
-}
-.btn-kid-mission:hover {
-  border-color: var(--star-gold);
-  background: rgba(245, 158, 11, 0.12);
-  transform: translateY(-1px);
-}
-.btn-kid-mission:active {
-  transform: scale(0.96);
-}
-
-.mission-emoji {
-  font-size: clamp(13px, 1.6vh, 20px);
-  line-height: 1;
-}
-.mission-name {
-  flex: 1;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mission-plus {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(9.5px, 1.1vh, 13px);
-  font-weight: 800;
-  color: #fbbf24;
-  background: rgba(245, 158, 11, 0.16);
-  padding: 2px 5px;
-  border-radius: 5px;
-}
-[data-theme="light"] .mission-plus {
-  color: #b45309;
-  background: #fef3c7;
-}
-
 .kids-hero-arena .btn-instant-star {
   width: 100%;
-  min-height: clamp(34px, 4.2vh, 52px);
-  padding: clamp(6px, 0.8vh, 11px) 12px;
-  font-size: clamp(12px, 1.4vh, 16.5px);
+  min-height: clamp(42px, 5.4vh, 62px);
+  padding: clamp(8px, 1.1vh, 14px) 16px;
+  font-size: clamp(14px, 1.75vh, 20px);
   font-weight: 800;
-  border-radius: 10px;
+  border-radius: 12px;
   margin-top: 0;
   flex-shrink: 0;
 }
 
-/* Kids Arena Bottom Split: 7-Day Velocity + Trophy Feed */
+/* Kids Arena Bottom Split: Spacious 7-Day Velocity + Trophy Feed */
 .kids-arena-bottom-grid {
   flex-shrink: 0;
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
-  gap: clamp(8px, 0.9vw, 14px);
-  height: clamp(106px, 14.2vh, 175px);
+  gap: clamp(10px, 1.1vw, 16px);
+  height: clamp(135px, 18.5vh, 220px);
   min-height: 0;
 }
 
 .kids-hero-arena .stars-timeseries-container {
-  padding: clamp(8px, 1vh, 14px) clamp(10px, 1vw, 16px);
+  padding: clamp(10px, 1.3vh, 16px) clamp(12px, 1.1vw, 18px);
   margin-bottom: 0;
-  border-radius: 12px;
+  border-radius: 13px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -2958,31 +2818,31 @@ body {
   flex: 1;
   height: auto;
   min-height: 0;
-  padding-top: 4px;
+  padding-top: 6px;
 }
 
 .day-bar-val {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(8.5px, 1vh, 11.5px);
+  font-size: clamp(9.5px, 1.1vh, 13px);
   font-weight: 800;
   color: var(--text-main);
-  margin-bottom: 1px;
+  margin-bottom: 2px;
 }
 
 .kids-trophy-feed-panel {
   background: var(--bg-subtle);
   border: 1px solid var(--border-card);
-  border-radius: 12px;
-  padding: clamp(8px, 1vh, 14px) clamp(10px, 1vw, 16px);
+  border-radius: 13px;
+  padding: clamp(10px, 1.3vh, 16px) clamp(12px, 1.1vw, 18px);
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 8px;
   min-height: 0;
   overflow: hidden;
 }
 
 .trophy-feed-hint {
-  font-size: clamp(9px, 1vh, 11.5px);
+  font-size: clamp(9.5px, 1.05vh, 12px);
   font-weight: 600;
   color: var(--text-subtle);
   text-transform: none;
@@ -2993,8 +2853,8 @@ body {
   min-height: 0;
   max-height: none;
   overflow-y: auto;
-  font-size: clamp(10.5px, 1.2vh, 13.5px);
-  gap: 4px;
+  font-size: clamp(11.5px, 1.3vh, 14.5px);
+  gap: 6px;
 }
 
 .chore-ticker-text {
@@ -3005,7 +2865,7 @@ body {
 
 .chore-delta-badge {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(9.5px, 1.1vh, 12.5px);
+  font-size: clamp(10.5px, 1.2vh, 13.5px);
   font-weight: 800;
   color: #fbbf24;
   margin: 0 2px;
@@ -3014,7 +2874,7 @@ body {
   color: #b45309;
 }
 
-/* 6. MAIN RIGHT STUDIO & 5-DAY HORIZON BOARD (ZERO OVERFLOW) */
+/* 5. MAIN RIGHT STUDIO & SPACIOUS 3-DAY HORIZON BOARD */
 .schedule-stream-tile {
   flex: 1;
   min-height: 0 !important;
@@ -3022,7 +2882,7 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: clamp(10px, 1.2vh, 16px) clamp(12px, 1.1vw, 18px);
+  padding: clamp(12px, 1.5vh, 20px) clamp(14px, 1.3vw, 22px);
   overflow: hidden;
 }
 
@@ -3032,13 +2892,13 @@ body {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px;
-  padding-bottom: clamp(6px, 0.8vh, 10px);
-  margin-bottom: clamp(6px, 0.8vh, 10px);
+  gap: 10px;
+  padding-bottom: clamp(8px, 1vh, 12px);
+  margin-bottom: clamp(8px, 1vh, 12px);
 }
 
 .tile-title-main {
-  font-size: clamp(14.5px, 1.7vh, 20px);
+  font-size: clamp(15.5px, 1.85vh, 22px);
   white-space: nowrap;
 }
 
@@ -3047,9 +2907,9 @@ body {
 }
 
 .stream-tab-btn {
-  min-height: clamp(28px, 3.2vh, 38px);
-  padding: 4px clamp(7px, 0.7vw, 12px);
-  font-size: clamp(10.5px, 1.15vh, 13.5px);
+  min-height: clamp(30px, 3.5vh, 40px);
+  padding: 5px clamp(9px, 0.8vw, 14px);
+  font-size: clamp(11px, 1.25vh, 14px);
 }
 
 .schedule-stream-list {
@@ -3060,11 +2920,11 @@ body {
   overflow-x: hidden;
 }
 
-/* 5-DAY HORIZON KANBAN / CALENDAR BOARD — Fits 100% inside 50% width with ZERO horizontal scroll */
+/* 3-DAY HORIZON BOARD — 3 Wide, Breathable Columns */
 .horizon-board-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: clamp(5px, 0.55vw, 10px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(10px, 1vw, 16px);
   height: 100%;
   min-height: 0;
   overflow-x: hidden;
@@ -3074,7 +2934,7 @@ body {
 .horizon-day-col {
   background: var(--bg-subtle);
   border: 1px solid var(--border-card);
-  border-radius: 10px;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -3092,12 +2952,12 @@ body {
 
 .horizon-day-header {
   flex-shrink: 0;
-  padding: clamp(6px, 0.8vh, 10px) clamp(6px, 0.6vw, 10px);
+  padding: clamp(9px, 1.1vh, 14px) clamp(10px, 0.9vw, 14px);
   border-bottom: 1px solid var(--border-card);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: 6px;
   cursor: pointer;
 }
 .horizon-day-header:hover {
@@ -3105,14 +2965,14 @@ body {
 }
 
 .horizon-day-title {
-  font-size: clamp(10.5px, 1.2vh, 14px);
+  font-size: clamp(12px, 1.4vh, 16px);
   font-weight: 800;
   color: var(--text-main);
   letter-spacing: -0.2px;
   white-space: nowrap;
 }
 .horizon-day-sub {
-  font-size: clamp(8.5px, 0.95vh, 11.5px);
+  font-size: clamp(10px, 1.1vh, 13px);
   font-weight: 600;
   color: var(--text-muted);
   display: block;
@@ -3121,9 +2981,9 @@ body {
 
 .horizon-slot-badge {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(8.5px, 0.95vh, 11px);
+  font-size: clamp(9.5px, 1.1vh, 12.5px);
   font-weight: 700;
-  padding: 1px 5px;
+  padding: 2px 8px;
   border-radius: 99px;
   background: var(--bg-card);
   border: 1px solid var(--border-card);
@@ -3137,10 +2997,10 @@ body {
 }
 
 .horizon-day-body {
-  padding: clamp(5px, 0.6vw, 9px);
+  padding: clamp(8px, 0.9vw, 12px);
   display: flex;
   flex-direction: column;
-  gap: clamp(5px, 0.6vh, 8px);
+  gap: clamp(8px, 0.95vh, 12px);
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -3150,11 +3010,11 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   border-left: 3px solid var(--primary-accent);
-  border-radius: 8px;
-  padding: clamp(6px, 0.75vh, 10px) clamp(6px, 0.65vw, 10px);
+  border-radius: 10px;
+  padding: clamp(9px, 1.1vh, 14px) clamp(10px, 0.9vw, 14px);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: clamp(5px, 0.65vh, 8px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
   transition: transform 0.14s ease, border-color 0.14s ease;
 }
@@ -3180,20 +3040,20 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: 6px;
 }
 .hb-time {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(8.5px, 0.95vh, 11.5px);
+  font-size: clamp(10px, 1.15vh, 13px);
   font-weight: 700;
   color: var(--text-muted);
   white-space: nowrap;
 }
 .hb-prio-btn {
-  font-size: clamp(8px, 0.9vh, 11px);
+  font-size: clamp(9.5px, 1.05vh, 12px);
   font-weight: 800;
-  padding: 1px 4px;
-  border-radius: 4px;
+  padding: 2px 6px;
+  border-radius: 5px;
   border: 1px solid var(--border-card);
   background: var(--bg-subtle);
   color: var(--text-muted);
@@ -3216,10 +3076,10 @@ body {
 }
 
 .hb-title {
-  font-size: clamp(10.5px, 1.2vh, 14px);
+  font-size: clamp(12px, 1.4vh, 16px);
   font-weight: 700;
   color: var(--text-main);
-  line-height: 1.25;
+  line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -3230,28 +3090,28 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
-  margin-top: 1px;
+  gap: 6px;
+  margin-top: 2px;
 }
 .hb-dur {
   font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(8.5px, 0.95vh, 11px);
+  font-size: clamp(9.5px, 1.1vh, 12.5px);
   color: var(--text-subtle);
 }
 .hb-actions {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
 }
 .hb-btn-pull,
 .hb-btn-done {
   border: 1px solid var(--border-card);
   background: var(--bg-subtle);
   color: var(--text-muted);
-  font-size: clamp(8.5px, 0.95vh, 11px);
+  font-size: clamp(9.5px, 1.1vh, 12.5px);
   font-weight: 800;
-  padding: 2px 5px;
-  border-radius: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.12s ease;
 }
@@ -3277,12 +3137,12 @@ body {
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 10px 6px;
+  padding: 16px 10px;
   color: var(--text-subtle);
-  font-size: clamp(10px, 1.1vh, 13px);
+  font-size: clamp(11px, 1.25vh, 14px);
   border: 1px dashed var(--border-card);
-  border-radius: 8px;
-  gap: 4px;
+  border-radius: 10px;
+  gap: 6px;
 }
 
 /* 7. STREAM HORIZON PEEK & PULL BUTTONS */
@@ -3420,31 +3280,4 @@ body {
   .horizon-board-grid {
     grid-template-columns: 1fr;
   }
-}
-
-/* 9. FULL-SCREEN PITCH-BLACK SLEEP CURTAIN (0% LUMINANCE BLACKOUT) */
-.screen-sleep-overlay {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100dvh;
-  background: #000000 !important;
-  z-index: 999999;
-  cursor: none;
-  touch-action: manipulation;
-  user-select: none;
-}
-.screen-sleep-overlay.hidden {
-  display: none !important;
-}
-body.screen-is-sleeping {
-  background: #000000 !important;
-  background-image: none !important;
-}
-body.screen-is-sleeping .hub-container,
-body.screen-is-sleeping .toast-container,
-body.screen-is-sleeping .modal-overlay {
-  visibility: hidden !important;
-  pointer-events: none !important;
-  animation: none !important;
 }

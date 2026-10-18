@@ -235,57 +235,18 @@ function initEventListeners() {
     themeToggleBtn.addEventListener('click', toggleThemeCycle);
   }
 
-  // Tablet Screen Sleep Button in Header + Full-Screen Pitch-Black Sleep Curtain
+  // Tablet Screen Sleep Button in Header (delegates to Home Assistant automations.yaml)
   const toggleScreenBtn = document.getElementById('toggleScreenBtn');
-  const screenSleepOverlay = document.getElementById('screenSleepOverlay');
-  let sleepEnteredAt = 0;
-
-  async function enterScreenSleepMode() {
-    sleepEnteredAt = Date.now();
-    document.body.classList.add('screen-is-sleeping');
-    if (screenSleepOverlay) {
-      screenSleepOverlay.classList.remove('hidden');
-    }
-    try {
-      await fetch('/api/tablet/screen/sleep', { method: 'POST' });
-    } catch (err) {
-      console.error('Failed to trigger screen sleep:', err);
-    }
-  }
-
-  async function exitScreenSleepMode(e) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    // Guard against synthetic touch/click bounce right after entering sleep
-    if (Date.now() - sleepEnteredAt < 450) return;
-    if (!document.body.classList.contains('screen-is-sleeping')) return;
-
-    document.body.classList.remove('screen-is-sleeping');
-    if (screenSleepOverlay) {
-      screenSleepOverlay.classList.add('hidden');
-    }
-    try {
-      await fetch('/api/tablet/screen/wake', { method: 'POST' });
-      fetchPlan();
-      fetchKidsStars();
-    } catch (err) {
-      console.error('Failed to trigger screen wake:', err);
-    }
-  }
-
   if (toggleScreenBtn) {
-    toggleScreenBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      enterScreenSleepMode();
+    toggleScreenBtn.addEventListener('click', async () => {
+      releaseScreenWakeLock();
+      try {
+        await fetch('/api/tablet/screen/sleep', { method: 'POST' });
+        showToast('Sleeping tablet screen...', 'info');
+      } catch (err) {
+        console.error('Failed to trigger screen sleep:', err);
+      }
     });
-  }
-
-  if (screenSleepOverlay) {
-    screenSleepOverlay.addEventListener('click', exitScreenSleepMode);
-    screenSleepOverlay.addEventListener('touchstart', exitScreenSleepMode, { passive: false });
   }
 
   // Theme Preference Chips in Settings Modal
@@ -679,14 +640,8 @@ function renderKidsStarWidget() {
   }
 
   const maxKidStars = Math.max(0, ...currentKidsData.kids.map(k => k.total_stars || 0));
-  const QUICK_MISSIONS = [
-    { icon: '🛏️', label: 'Bed', desc: 'Made Bed' },
-    { icon: '🧹', label: 'Room', desc: 'Cleaned Room' },
-    { icon: '📚', label: 'Study', desc: 'Homework & Reading' },
-    { icon: '🍽️', label: 'Dishes', desc: 'Helped with Dishes' }
-  ];
 
-  // 1. Render Full-Stage Kid Hero Cards
+  // 1. Render Spacious Full-Stage Kid Hero Cards
   kidsProfilesGrid.innerHTML = '';
   currentKidsData.kids.forEach(kid => {
     const card = document.createElement('div');
@@ -708,14 +663,6 @@ function renderKidsStarWidget() {
       starSlotsHtml += `<span class="kid-star-slot ${isEarned ? 'earned' : 'empty'}" title="Star ${i} of ${MILESTONE_STEP}">${isEarned ? '★' : '☆'}</span>`;
     }
 
-    const missionsHtml = QUICK_MISSIONS.map(m => `
-      <button type="button" class="btn-kid-mission" data-chore="${escapeHtml(m.desc)}" title="Award +1 Star for ${escapeHtml(m.desc)}">
-        <span class="mission-emoji">${m.icon}</span>
-        <span class="mission-name">${escapeHtml(m.label)}</span>
-        <span class="mission-plus">+1★</span>
-      </button>
-    `).join('');
-
     card.innerHTML = `
       <div class="kid-card-top-bar">
         <span class="kid-level-badge">${rank.icon} LVL ${rank.level} · ${rank.title}</span>
@@ -730,7 +677,7 @@ function renderKidsStarWidget() {
         </div>
         <div class="kid-stars-count" title="${total} Total Stars">
           <span>${total}</span>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
         </div>
       </div>
 
@@ -747,27 +694,10 @@ function renderKidsStarWidget() {
         </div>
       </div>
 
-      <div class="kid-missions-section">
-        <div class="kid-missions-heading">1-TAP CHORE MISSIONS</div>
-        <div class="kid-mission-grid">
-          ${missionsHtml}
-        </div>
-      </div>
-
       <button class="btn-instant-star" data-kid="${escapeHtml(kid.kid_name)}">
-        <span>⚡ Quick +1 Star Bonus</span>
+        <span>⭐ Award +1 Star</span>
       </button>
     `;
-
-    card.querySelectorAll('.btn-kid-mission').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const choreDesc = btn.getAttribute('data-chore') || 'Chore Completed';
-        card.classList.add('star-reward-active');
-        setTimeout(() => card.classList.remove('star-reward-active'), 450);
-        awardStar(kid.kid_name, 1, choreDesc);
-      });
-    });
 
     const instantBtn = card.querySelector('.btn-instant-star');
     if (instantBtn) {
@@ -1273,7 +1203,7 @@ function renderScheduleStream() {
   const backlogTasks = currentTasks.filter(t => unscheduledIds.has(t.id) || !scheduledTaskIds.has(t.id) || Boolean(t.deferred_until || t.snoozed_until));
 
   // Update tab badges
-  if (countBoardEl) countBoardEl.textContent = '5d';
+  if (countBoardEl) countBoardEl.textContent = '3d';
   if (countTodayEl) countTodayEl.textContent = todayBlocks.length + todayFixed.length;
   if (countUpcomingEl) countUpcomingEl.textContent = upcomingBlocks.length;
   if (countBacklogEl) countBacklogEl.textContent = backlogTasks.length;
@@ -1288,9 +1218,9 @@ function renderScheduleStream() {
 
   timeline.innerHTML = '';
 
-  // VIEW 0: 5-DAY HORIZON BOARD (Linear / Cron Multi-Column Week Planner)
+  // VIEW 0: 3-DAY HORIZON BOARD (Spacious 3-Column Planner)
   if (currentStreamView === 'board') {
-    if (heading) heading.textContent = '5-Day Horizon Board';
+    if (heading) heading.textContent = '3-Day Horizon Board';
     if (subtitle) {
       subtitle.textContent = `${blocks.length} AI time-blocked tasks across your active horizon • Click any day header to scrub timeline`;
     }
@@ -1299,8 +1229,8 @@ function renderScheduleStream() {
     const boardDates = [];
     const now = new Date();
 
-    // Always include Today first, then the next 4 days that have items or are active workdays
-    for (let offset = 0; offset < 14 && boardDates.length < 5; offset++) {
+    // Always include Today first, then the next 2 days that have items or are active workdays
+    for (let offset = 0; offset < 14 && boardDates.length < 3; offset++) {
       const d = new Date(now);
       d.setDate(now.getDate() + offset);
       const dStr = getLocalDateStr(d);
@@ -2373,22 +2303,14 @@ function initTabletPreferences() {
   const urlParams = new URLSearchParams(window.location.search);
   const kioskParam = urlParams.get('kiosk');
   const storedKiosk = localStorage.getItem('monga_kiosk_fit');
-  const storedWakeLock = localStorage.getItem('monga_keep_awake');
 
   if (kioskParam === '1' || kioskParam === 'true' || storedKiosk === 'true') {
     document.body.classList.add('kiosk-mode');
   }
 
-  if (storedWakeLock === 'true') {
-    requestScreenWakeLock();
-  }
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      const keepAwake = localStorage.getItem('monga_keep_awake') === 'true';
-      if (keepAwake) requestScreenWakeLock();
-    }
-  });
+  // Always allow Home Assistant Companion App (automations.yaml) to control screen wake/sleep
+  localStorage.removeItem('monga_keep_awake');
+  releaseScreenWakeLock();
 }
 
 function populateSettingsForm() {
