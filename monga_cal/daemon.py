@@ -101,7 +101,8 @@ def prepare_scheduled_tasks(
             category=p.get("category", "Project"),
             category_icon=icon,
             color_preset=p.get("color_preset", "cyan"),
-            manager_directive=f"Macro Focus Block: {title}. {active_count} micro-tasks managed in Kanban."
+            manager_directive=f"Macro Focus Block: {title}. {active_count} micro-tasks managed in Kanban.",
+            project_id=proj_id
         )
 
         macro_task.deferred_until = active_deferrals.get(task_id)

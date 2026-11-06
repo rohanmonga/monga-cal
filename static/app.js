@@ -22,6 +22,42 @@ let sprintTimerInterval = null;
 let isSprintRunning = false;
 
 /**
+ * Resolves project ID for a task or scheduled block
+ */
+function getProjectForTask(taskOrBlock) {
+  if (!taskOrBlock) return 'ssn-prot';
+  if (taskOrBlock.project_id) return taskOrBlock.project_id;
+  const id = String(taskOrBlock.id || taskOrBlock.task_id || '');
+  const title = String(taskOrBlock.title || taskOrBlock.task_title || '').toLowerCase();
+
+  if (id.startsWith('kanban_proj_')) return id.replace('kanban_proj_', '');
+  if (id === 'ZUE2YnBFRU14QWhxT0VEOQ' || title.includes('ssn') || title.includes('protect kids')) return 'ssn-prot';
+  if (title.includes('finance') || title.includes('tax') || title.includes('claim')) return 'fin-prot';
+  if (title.includes('home') || title.includes('contractor') || title.includes('utilit')) return 'home-prot';
+  if (title.includes('errand') || title.includes('return')) return 'errands-prot';
+  if (title.includes('family') || title.includes('kid') || title.includes('health')) return 'family-prot';
+  return 'ssn-prot';
+}
+
+/**
+ * Navigates seamlessly to the project-specific Kanban board
+ */
+function openProjectKanban(projId) {
+  const p = projId || 'ssn-prot';
+  const host = window.location.hostname || '192.168.86.32';
+  const targetPort = 8050;
+  const kanbanUrl = `http://${host}:${targetPort}/?project=${encodeURIComponent(p)}`;
+
+  if (window.self !== window.top) {
+    // Inside Home Assistant iframe
+    window.open(kanbanUrl, '_blank');
+  } else {
+    // Standalone app: navigate in current window
+    window.location.href = kanbanUrl;
+  }
+}
+
+/**
  * Returns YYYY-MM-DD in America/Los_Angeles local timezone (never UTC!)
  */
 function getLocalDateStr(dateObj = new Date()) {
@@ -930,9 +966,19 @@ function renderCurrentFocusHero() {
       } catch (e) {}
     }
 
+    const activeProjId = getProjectForTask(activeItem) || (activeTask ? getProjectForTask(activeTask) : 'ssn-prot');
     if (heroTimeRange) heroTimeRange.textContent = `${fmtTime(dtStart)} - ${fmtTime(dtEnd)}`;
-    if (heroTaskTitle) heroTaskTitle.innerHTML = `${escapeHtml(activeItem.title)}${dueInfo}`;
-    if (heroTaskDirective) heroTaskDirective.textContent = activeItem.directive;
+    if (heroTaskTitle) {
+      heroTaskTitle.innerHTML = `${escapeHtml(activeItem.title)}${dueInfo}`;
+      heroTaskTitle.style.cursor = 'pointer';
+      heroTaskTitle.title = 'Click to open project tasks in Kanban';
+      heroTaskTitle.onclick = () => openProjectKanban(activeProjId);
+    }
+    if (heroTaskDirective) {
+      heroTaskDirective.textContent = activeItem.directive;
+      heroTaskDirective.style.cursor = 'pointer';
+      heroTaskDirective.onclick = () => openProjectKanban(activeProjId);
+    }
 
     if (heroActionsGroup) {
       if (activeItem.is_fixed) {
@@ -946,13 +992,18 @@ function renderCurrentFocusHero() {
           <button class="btn-hero-complete" id="heroCompleteBtn">
             <span>✅</span> Mark Complete
           </button>
+          <button class="btn-hero-snooze" id="heroKanbanBtn" style="background:#0284c7; color:#fff;" title="Open project in Kanban">
+            <span>📋</span> Kanban
+          </button>
           <button class="btn-hero-snooze" id="heroSnoozeBtn">
             <span>🌙</span> Snooze 1 Day
           </button>
         `;
         const cBtn = document.getElementById('heroCompleteBtn');
+        const kBtn = document.getElementById('heroKanbanBtn');
         const sBtn = document.getElementById('heroSnoozeBtn');
         if (cBtn) cBtn.addEventListener('click', () => openCompleteModal(activeItem.task_id, activeItem.title, estMins));
+        if (kBtn) kBtn.addEventListener('click', () => openProjectKanban(activeProjId));
         if (sBtn) sBtn.addEventListener('click', () => snoozeTask(activeItem.task_id, 1, activeItem.title));
       }
     }
@@ -971,13 +1022,21 @@ function renderCurrentFocusHero() {
       const nextEnd = new Date(nextBlock.end);
       const dayLabel = nextStart.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       const estMins = nextTask ? (nextTask.estimated_minutes || 30) : Math.round((nextEnd - nextStart) / 60000);
+      const nextProjId = getProjectForTask(nextBlock) || (nextTask ? getProjectForTask(nextTask) : 'ssn-prot');
 
       if (heroBadge) heroBadge.textContent = 'NEXT WORKDAY SPOTLIGHT';
       if (heroTimeRemaining) heroTimeRemaining.textContent = `Scheduled ${dayLabel}`;
       if (heroTimeRange) heroTimeRange.textContent = `${dayLabel} • ${fmtTime(nextStart)} - ${fmtTime(nextEnd)}`;
-      if (heroTaskTitle) heroTaskTitle.textContent = nextBlock.task_title;
+      if (heroTaskTitle) {
+        heroTaskTitle.textContent = nextBlock.task_title;
+        heroTaskTitle.style.cursor = 'pointer';
+        heroTaskTitle.title = 'Click to open project tasks in Kanban';
+        heroTaskTitle.onclick = () => openProjectKanban(nextProjId);
+      }
       if (heroTaskDirective) {
         heroTaskDirective.textContent = `Today's schedule is clear (${completedToday}/${currentConfig.max_tasks_per_day || 3} slots used). Pull this #1 priority task into Today if you want to get ahead.`;
+        heroTaskDirective.style.cursor = 'pointer';
+        heroTaskDirective.onclick = () => openProjectKanban(nextProjId);
       }
       if (heroProgressFill) heroProgressFill.style.width = '0%';
       if (heroActionsGroup) {
@@ -985,13 +1044,18 @@ function renderCurrentFocusHero() {
           <button class="btn-hero-complete" id="heroPullTodayBtn" style="background: linear-gradient(135deg, #6366f1, #4f46e5);">
             <span>⚡</span> Pull into Today
           </button>
+          <button class="btn-hero-snooze" id="heroKanbanBtn" style="background:#0284c7; color:#fff;" title="Open project in Kanban">
+            <span>📋</span> Kanban
+          </button>
           <button class="btn-hero-snooze" id="heroCompleteEarlyBtn">
             <span>✓</span> Complete Now
           </button>
         `;
         const pullBtn = document.getElementById('heroPullTodayBtn');
+        const kBtn = document.getElementById('heroKanbanBtn');
         const compBtn = document.getElementById('heroCompleteEarlyBtn');
         if (pullBtn) pullBtn.addEventListener('click', () => pullTaskToToday(nextBlock.task_id, nextBlock.task_title));
+        if (kBtn) kBtn.addEventListener('click', () => openProjectKanban(nextProjId));
         if (compBtn) compBtn.addEventListener('click', () => openCompleteModal(nextBlock.task_id, nextBlock.task_title, estMins));
       }
     } else {
@@ -1332,9 +1396,17 @@ function renderScheduleStream() {
             const estMins = t.estimated_minutes || Math.max(15, Math.round((item.end - item.start) / 60000));
             const icon = t.category_icon || b.category_icon || '📌';
             const isKanbanProj = (t.id && t.id.startsWith("kanban_proj_")) || (b.task_id && b.task_id.startsWith("kanban_proj_")) || t.list_name === "Projects" || b.category === "Project";
-            const kanbanLink = (window.parent && window.parent.location.pathname.includes('dashboard')) ? '/dashboard-kanban' : 'http://192.168.86.32:8050/';
+            const targetProjId = getProjectForTask(b) || getProjectForTask(t);
+            const kanbanLink = `http://${window.location.hostname || '192.168.86.32'}:8050/?project=${encodeURIComponent(targetProjId)}`;
 
             card.className = `horizon-board-card prio-${prio} ${isKanbanProj ? 'is-kanban-macro' : ''}`;
+            card.style.cursor = 'pointer';
+            card.title = `Click card to open ${b.task_title} in Kanban`;
+            card.addEventListener('click', (e) => {
+              if (e.target.closest('.hb-prio-btn, .hb-btn-pull, .hb-btn-done')) return;
+              openProjectKanban(targetProjId);
+            });
+
             card.innerHTML = `
               <div class="hb-card-top">
                 <span class="hb-time">${fmtTime(item.start)}</span>
@@ -1347,12 +1419,19 @@ function renderScheduleStream() {
               <div class="hb-footer">
                 <span class="hb-dur">${estMins}m</span>
                 <div class="hb-actions">
-                  ${isKanbanProj ? `<a href="${kanbanLink}" target="_top" class="hb-btn-pull" style="text-decoration:none;background:#0284c7;color:#fff;" title="Open in Kanban">📋 Kanban</a>` : ''}
+                  ${isKanbanProj ? `<a href="${kanbanLink}" class="hb-btn-pull hb-kanban-link" style="text-decoration:none;background:#0284c7;color:#fff;" title="Open in Kanban">📋 Kanban</a>` : ''}
                   ${!isToday ? `<button class="hb-btn-pull" title="Pull into Today's schedule">⚡ Today</button>` : ''}
                   <button class="hb-btn-done" title="Mark Complete">✓ Done</button>
                 </div>
               </div>
             `;
+
+            const kBtn = card.querySelector('.hb-kanban-link');
+            if (kBtn) kBtn.addEventListener('click', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openProjectKanban(targetProjId);
+            });
 
             const prioBtn = card.querySelector('.hb-prio-btn');
             const pullBtn = card.querySelector('.hb-btn-pull');
@@ -1566,6 +1645,14 @@ function renderScheduleStream() {
         </div>
       `;
 
+      const targetProjId = getProjectForTask(t);
+      card.style.cursor = 'pointer';
+      card.title = `Click card to open ${t.title} in Kanban`;
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('button, a, input, select')) return;
+        openProjectKanban(targetProjId);
+      });
+
       const prioBtn = card.querySelector('.badge-prio-btn');
       if (prioBtn) {
         prioBtn.addEventListener('click', () => cycleTaskPriority(t.id, prioScore));
@@ -1639,10 +1726,18 @@ function buildStreamCardElement(item, fmtTime, todayStr, nowMs, allowPullToToday
       : `<div class="stream-card-directive">${escapeHtml(rawDirective)}</div>`;
 
     const isKanbanProj = (t.id && t.id.startsWith("kanban_proj_")) || (b.task_id && b.task_id.startsWith("kanban_proj_")) || t.list_name === "Projects" || b.category === "Project";
-    const kanbanLink = (window.parent && window.parent.location.pathname.includes('dashboard')) ? '/dashboard-kanban' : 'http://192.168.86.32:8050/';
+    const targetProjId = getProjectForTask(b) || getProjectForTask(t);
+    const kanbanLink = `http://${window.location.hostname || '192.168.86.32'}:8050/?project=${encodeURIComponent(targetProjId)}`;
     const kanbanBadge = isKanbanProj
-      ? `<a href="${kanbanLink}" target="_top" class="stream-card-badge" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:6px; font-weight:700; font-size:11px;" title="Open this project in Kanban">📋 Macro Project ↗</a>`
+      ? `<a href="${kanbanLink}" class="stream-card-badge stream-kanban-link" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:6px; font-weight:700; font-size:11px;" title="Open this project in Kanban">📋 Macro Project ↗</a>`
       : '';
+
+    card.style.cursor = 'pointer';
+    card.title = `Click card to open ${t.title} in Kanban`;
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('button, a, input, select')) return;
+      openProjectKanban(targetProjId);
+    });
 
     card.innerHTML = `
       <div class="stream-card-left">
@@ -1660,12 +1755,20 @@ function buildStreamCardElement(item, fmtTime, todayStr, nowMs, allowPullToToday
         </div>
       </div>
       <div class="stream-card-controls">
-        ${isKanbanProj ? `<a href="${kanbanLink}" target="_top" class="btn-card-icon" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; font-size:13px;" title="Open Project in Kanban">📋</a>` : ''}
+        ${isKanbanProj ? `<a href="${kanbanLink}" class="btn-card-icon stream-kanban-link" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; font-size:13px;" title="Open Project in Kanban">📋</a>` : ''}
         ${allowPullToToday ? `<button class="btn-pull-today" data-task-id="${t.id}" title="Pull this task into Today's schedule">⚡ Pull to Today</button>` : ''}
         <button class="btn-card-done" data-task-id="${t.id}">Done</button>
         <button class="btn-card-icon snooze-btn" data-task-id="${t.id}" title="Snooze 1 day">🌙</button>
       </div>
     `;
+
+    card.querySelectorAll('.stream-kanban-link').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openProjectKanban(targetProjId);
+      });
+    });
 
     const prioBtn = card.querySelector('.badge-prio-btn');
     const dueBtn = card.querySelector('.badge-due-btn');

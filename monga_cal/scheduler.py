@@ -384,6 +384,7 @@ class Scheduler:
                             category_icon=getattr(t, "category_icon", "📌"),
                             color_preset=getattr(t, "color_preset", "neutral"),
                             manager_directive=t.manager_directive,
+                            project_id=getattr(t, "project_id", None),
                         )
                     )
                 else:

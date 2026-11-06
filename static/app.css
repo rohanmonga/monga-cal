@@ -840,9 +840,11 @@ body {
   justify-content: space-between;
   gap: 14px;
   box-shadow: var(--card-shadow);
+  cursor: pointer;
   transition: all 0.15s ease;
 }
 .stream-card:hover {
+  transform: translateY(-1px);
   border-color: var(--border-focus);
   box-shadow: var(--card-hover-shadow);
 }
@@ -3016,11 +3018,13 @@ body {
   flex-direction: column;
   gap: clamp(5px, 0.65vh, 8px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
-  transition: transform 0.14s ease, border-color 0.14s ease;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
 }
 .horizon-board-card:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
   border-color: var(--border-focus);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 .horizon-board-card.prio-1 {
   border-left-color: var(--danger-red);

@@ -27,6 +27,7 @@ class Task(BaseModel):
     flexible: bool = True
     created_at: Optional[datetime] = None
     deferred_until: Optional[date] = None
+    project_id: Optional[str] = None
 
 class EstimationResult(BaseModel):
     estimated_minutes: int = 30
@@ -51,6 +52,7 @@ class ScheduledBlock(BaseModel):
     color_preset: str = "neutral"
     manager_directive: str
     event_uid: Optional[str] = None
+    project_id: Optional[str] = None
 
 class SchedulePlan(BaseModel):
     blocks: List[ScheduledBlock] = Field(default_factory=list)
