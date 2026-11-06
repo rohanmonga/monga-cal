@@ -576,6 +576,10 @@ class GoogleServicesManager:
                 return False
 
     def mark_task_complete(self, task_id: str) -> bool:
+        if task_id.startswith("kanban_proj_"):
+            logger.info(f"Task '{task_id}' is a Kanban macro project; skipped Google Tasks patch.")
+            return True
+
         self.invalidate_cache()
         with self._api_lock:
             if not self._connected:
@@ -599,6 +603,10 @@ class GoogleServicesManager:
                 return False
 
     def update_task_due(self, task_id: str, due_date: Optional[str]) -> bool:
+        if task_id.startswith("kanban_proj_"):
+            logger.info(f"Task '{task_id}' is a Kanban macro project; skipped Google Tasks due patch.")
+            return True
+
         normalized_due = None
         if due_date:
             try:

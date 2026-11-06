@@ -156,6 +156,40 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS idx_kid_stars ON kid_stars(kid_name, created_at);
+
+                CREATE TABLE IF NOT EXISTS kanban_projects (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    status TEXT DEFAULT 'in_flight',
+                    category TEXT DEFAULT 'General',
+                    color_preset TEXT DEFAULT 'cyan',
+                    icon TEXT DEFAULT '📁',
+                    target_date DATE,
+                    sort_order REAL DEFAULT 0.0,
+                    schedule_cadence TEXT DEFAULT 'Day 1, 3, 5',
+                    google_task_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS kanban_tasks (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT,
+                    title TEXT NOT NULL,
+                    notes TEXT,
+                    kanban_column TEXT DEFAULT 'backlog',
+                    sort_order REAL DEFAULT 0.0,
+                    estimated_minutes INTEGER DEFAULT 30,
+                    actual_minutes INTEGER DEFAULT 0,
+                    priority_score INTEGER DEFAULT 3,
+                    energy TEXT DEFAULT 'medium',
+                    due_date DATE,
+                    google_task_id TEXT,
+                    is_subtask BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                );
             """)
             cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS category TEXT DEFAULT 'General';")
             cursor.execute("ALTER TABLE estimate_cache ADD COLUMN IF NOT EXISTS category_icon TEXT DEFAULT '📌';")
@@ -220,6 +254,40 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS idx_kid_stars ON kid_stars(kid_name, created_at);
+
+                CREATE TABLE IF NOT EXISTS kanban_projects (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    status TEXT DEFAULT 'in_flight',
+                    category TEXT DEFAULT 'General',
+                    color_preset TEXT DEFAULT 'cyan',
+                    icon TEXT DEFAULT '📁',
+                    target_date DATE,
+                    sort_order REAL DEFAULT 0.0,
+                    schedule_cadence TEXT DEFAULT 'Day 1, 3, 5',
+                    google_task_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS kanban_tasks (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT,
+                    title TEXT NOT NULL,
+                    notes TEXT,
+                    kanban_column TEXT DEFAULT 'backlog',
+                    sort_order REAL DEFAULT 0.0,
+                    estimated_minutes INTEGER DEFAULT 30,
+                    actual_minutes INTEGER DEFAULT 0,
+                    priority_score INTEGER DEFAULT 3,
+                    energy TEXT DEFAULT 'medium',
+                    due_date DATE,
+                    google_task_id TEXT,
+                    is_subtask BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                );
             """)
             try:
                 cursor.execute("ALTER TABLE estimate_cache ADD COLUMN category TEXT DEFAULT 'General'")
@@ -654,3 +722,34 @@ class Database:
             placeholders = ", ".join(["?"] * len(expired_ids))
             self._execute(f"DELETE FROM task_deferrals WHERE task_id IN ({placeholders})", tuple(expired_ids), commit=True)
         return active
+
+    def get_kanban_projects(self) -> List[Dict[str, Any]]:
+        """Fetches active macro projects from kanban_projects and task counts from kanban_tasks."""
+        sql = """
+            SELECT p.id, p.title, p.description, p.status, p.category, 
+                   p.color_preset, p.icon, p.schedule_cadence, p.google_task_id,
+                   COUNT(t.id) as total_tasks,
+                   SUM(CASE WHEN t.kanban_column IN ('today', 'in_progress') THEN 1 ELSE 0 END) as active_tasks,
+                   SUM(CASE WHEN t.kanban_column = 'today' THEN 1 ELSE 0 END) as today_tasks
+            FROM kanban_projects p
+            LEFT JOIN kanban_tasks t ON p.id = t.project_id
+            WHERE p.status = 'in_flight'
+            GROUP BY p.id
+            ORDER BY p.sort_order ASC
+        """
+        try:
+            rows = self._execute(sql, fetchall=True) or []
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning(f"Could not query kanban_projects: {e}")
+            return []
+
+    def get_kanban_subtask_google_ids(self) -> set:
+        """Fetches google_task_id set for tasks flagged as subtasks in kanban_tasks."""
+        sql = "SELECT google_task_id FROM kanban_tasks WHERE is_subtask = TRUE AND google_task_id IS NOT NULL"
+        try:
+            rows = self._execute(sql, fetchall=True) or []
+            return {dict(r)["google_task_id"] for r in rows if dict(r).get("google_task_id")}
+        except Exception as e:
+            logger.warning(f"Could not query kanban subtask ids: {e}")
+            return set()

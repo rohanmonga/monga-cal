@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from monga_cal.daemon import daemon_service
+from monga_cal.daemon import daemon_service, prepare_scheduled_tasks
 from monga_cal.models import TaskCompletionRecord, SchedulePlan, ScheduledBlock, Task, ScheduleSettingsRequest, KidStarRequest, SnoozeRequest
 from monga_cal.config import config, save_config
 
@@ -254,22 +254,25 @@ async def get_plan(force_solve: bool = False):
     end_dt = start_dt + timedelta(days=14)
     fixed_events = await asyncio.to_thread(daemon_service.gservices.fetch_fixed_events, start_dt, end_dt)
 
+    raw_tasks = await asyncio.to_thread(daemon_service.gservices.fetch_tasks)
+    active_deferrals = await asyncio.to_thread(daemon_service.db.get_all_active_deferrals)
+    priority_overrides = await asyncio.to_thread(daemon_service.db.get_all_priority_overrides)
+    kanban_projects = await asyncio.to_thread(daemon_service.db.get_kanban_projects)
+    subtask_google_ids = await asyncio.to_thread(daemon_service.db.get_kanban_subtask_google_ids)
+
+    tasks = prepare_scheduled_tasks(
+        raw_tasks, kanban_projects, subtask_google_ids, active_deferrals, priority_overrides, now
+    )
+    estimated_tasks = await asyncio.to_thread(daemon_service.ai.estimate_tasks_batch, tasks)
+    for et in estimated_tasks:
+        saved_prio = priority_overrides.get(et.id)
+        if saved_prio:
+            et.priority_score = max(1, min(5, saved_prio))
+
     if not force_solve and existing_plan_raw:
-        raw_tasks = await asyncio.to_thread(daemon_service.gservices.fetch_tasks)
-        active_deferrals = await asyncio.to_thread(daemon_service.db.get_all_active_deferrals)
-        priority_overrides = await asyncio.to_thread(daemon_service.db.get_all_priority_overrides)
-        tasks = []
-        for t in raw_tasks:
-            t.deferred_until = active_deferrals.get(t.id)
-            tasks.append(t)
-
-        estimated_tasks = await asyncio.to_thread(daemon_service.ai.estimate_tasks_batch, tasks)
-        for et in estimated_tasks:
-            saved_prio = priority_overrides.get(et.id)
-            if saved_prio:
-                et.priority_score = max(1, min(5, saved_prio))
-
         blocks = [ScheduledBlock(**b) for b in existing_plan_raw]
+        # Prune any legacy micro-subtasks from old schedules
+        blocks = [b for b in blocks if b.task_id not in subtask_google_ids and not b.task_title.startswith("- [")]
         scheduled_ids = {b.task_id for b in blocks}
         unscheduled_ids = [t.id for t in estimated_tasks if t.id not in scheduled_ids]
         completed_today = await asyncio.to_thread(daemon_service.db.get_completed_count_today)
@@ -291,18 +294,6 @@ async def get_plan(force_solve: bool = False):
         }
 
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
-    raw_tasks = await asyncio.to_thread(daemon_service.gservices.fetch_tasks)
-    active_deferrals = await asyncio.to_thread(daemon_service.db.get_all_active_deferrals)
-    priority_overrides = await asyncio.to_thread(daemon_service.db.get_all_priority_overrides)
-    for t in raw_tasks:
-        t.deferred_until = active_deferrals.get(t.id)
-    estimated_tasks = await asyncio.to_thread(daemon_service.ai.estimate_tasks_batch, raw_tasks)
-
-    for et in estimated_tasks:
-        saved_prio = priority_overrides.get(et.id)
-        if saved_prio:
-            et.priority_score = max(1, min(5, saved_prio))
-
     return {
         "status": get_status(),
         "tasks": [t.model_dump(mode="json") for t in estimated_tasks],

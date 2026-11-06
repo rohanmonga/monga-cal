@@ -1331,17 +1331,23 @@ function renderScheduleStream() {
             const prio = t.priority_score || b.priority_score || 3;
             const estMins = t.estimated_minutes || Math.max(15, Math.round((item.end - item.start) / 60000));
             const icon = t.category_icon || b.category_icon || '📌';
+            const isKanbanProj = (t.id && t.id.startsWith("kanban_proj_")) || (b.task_id && b.task_id.startsWith("kanban_proj_")) || t.list_name === "Projects" || b.category === "Project";
+            const kanbanLink = (window.parent && window.parent.location.pathname.includes('dashboard')) ? '/dashboard-kanban' : 'http://192.168.86.32:8050/';
 
-            card.className = `horizon-board-card prio-${prio}`;
+            card.className = `horizon-board-card prio-${prio} ${isKanbanProj ? 'is-kanban-macro' : ''}`;
             card.innerHTML = `
               <div class="hb-card-top">
                 <span class="hb-time">${fmtTime(item.start)}</span>
-                <button class="hb-prio-btn p-${prio}" title="Click to cycle priority">P${prio}</button>
+                <div style="display:flex;align-items:center;gap:4px;">
+                  ${isKanbanProj ? `<span style="font-size:9.5px;font-weight:700;color:#0284c7;background:#e0f2fe;padding:1px 5px;border-radius:4px;">MACRO</span>` : ''}
+                  <button class="hb-prio-btn p-${prio}" title="Click to cycle priority">P${prio}</button>
+                </div>
               </div>
               <div class="hb-title" title="${escapeHtml(b.task_title)}">${escapeHtml(icon)} ${escapeHtml(b.task_title)}</div>
               <div class="hb-footer">
                 <span class="hb-dur">${estMins}m</span>
                 <div class="hb-actions">
+                  ${isKanbanProj ? `<a href="${kanbanLink}" target="_top" class="hb-btn-pull" style="text-decoration:none;background:#0284c7;color:#fff;" title="Open in Kanban">📋 Kanban</a>` : ''}
                   ${!isToday ? `<button class="hb-btn-pull" title="Pull into Today's schedule">⚡ Today</button>` : ''}
                   <button class="hb-btn-done" title="Mark Complete">✓ Done</button>
                 </div>
@@ -1632,6 +1638,12 @@ function buildStreamCardElement(item, fmtTime, todayStr, nowMs, allowPullToToday
       ? `<div class="stream-card-directive">${estMins}m focus block</div>`
       : `<div class="stream-card-directive">${escapeHtml(rawDirective)}</div>`;
 
+    const isKanbanProj = (t.id && t.id.startsWith("kanban_proj_")) || (b.task_id && b.task_id.startsWith("kanban_proj_")) || t.list_name === "Projects" || b.category === "Project";
+    const kanbanLink = (window.parent && window.parent.location.pathname.includes('dashboard')) ? '/dashboard-kanban' : 'http://192.168.86.32:8050/';
+    const kanbanBadge = isKanbanProj
+      ? `<a href="${kanbanLink}" target="_top" class="stream-card-badge" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:6px; font-weight:700; font-size:11px;" title="Open this project in Kanban">📋 Macro Project ↗</a>`
+      : '';
+
     card.innerHTML = `
       <div class="stream-card-left">
         <div class="stream-card-time">${fmtTime(item.start)}<br>${fmtTime(item.end)}</div>
@@ -1639,6 +1651,7 @@ function buildStreamCardElement(item, fmtTime, todayStr, nowMs, allowPullToToday
           <div class="stream-card-title-row">
             <span style="font-size: 15px;">${escapeHtml(t.category_icon || '📌')}</span>
             <span class="stream-card-title">${escapeHtml(t.title)}</span>
+            ${kanbanBadge}
             <span class="stream-card-badge badge-focus">${escapeHtml(t.category || 'Focus')}</span>
             <button class="stream-card-badge badge-prio badge-prio-btn" title="Tap to cycle priority (P1/P2/P3)">${prioLabel}</button>
             ${dueBadge}
@@ -1647,6 +1660,7 @@ function buildStreamCardElement(item, fmtTime, todayStr, nowMs, allowPullToToday
         </div>
       </div>
       <div class="stream-card-controls">
+        ${isKanbanProj ? `<a href="${kanbanLink}" target="_top" class="btn-card-icon" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center; font-size:13px;" title="Open Project in Kanban">📋</a>` : ''}
         ${allowPullToToday ? `<button class="btn-pull-today" data-task-id="${t.id}" title="Pull this task into Today's schedule">⚡ Pull to Today</button>` : ''}
         <button class="btn-card-done" data-task-id="${t.id}">Done</button>
         <button class="btn-card-icon snooze-btn" data-task-id="${t.id}" title="Snooze 1 day">🌙</button>
