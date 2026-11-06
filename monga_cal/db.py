@@ -729,6 +729,7 @@ class Database:
             SELECT p.id, p.title, p.description, p.status, p.category, 
                    p.color_preset, p.icon, p.schedule_cadence, p.google_task_id,
                    COUNT(t.id) as total_tasks,
+                   SUM(CASE WHEN t.is_subtask = TRUE THEN 1 ELSE 0 END) as subtask_count,
                    SUM(CASE WHEN t.kanban_column IN ('today', 'in_progress') THEN 1 ELSE 0 END) as active_tasks,
                    SUM(CASE WHEN t.kanban_column = 'today' THEN 1 ELSE 0 END) as today_tasks
             FROM kanban_projects p
@@ -742,6 +743,28 @@ class Database:
             return [dict(r) for r in rows]
         except Exception as e:
             logger.warning(f"Could not query kanban_projects: {e}")
+            return []
+
+    def get_kanban_active_tasks(self) -> List[Dict[str, Any]]:
+        """Fetches actionable, non-subtask active tasks from kanban_tasks for scheduling."""
+        sql = """
+            SELECT t.id, t.project_id, t.title, t.notes, t.kanban_column,
+                   t.sort_order, t.estimated_minutes, t.priority_score, t.energy,
+                   t.due_date, t.google_task_id, t.is_subtask,
+                   p.title as project_title, p.icon as project_icon, p.color_preset as project_color,
+                   p.category as project_category
+            FROM kanban_tasks t
+            JOIN kanban_projects p ON t.project_id = p.id
+            WHERE (t.is_subtask IS NULL OR t.is_subtask = FALSE)
+              AND t.kanban_column != 'done'
+              AND p.status = 'in_flight'
+            ORDER BY t.priority_score ASC, t.sort_order ASC
+        """
+        try:
+            rows = self._execute(sql, fetchall=True) or []
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning(f"Could not query kanban active tasks: {e}")
             return []
 
     def get_kanban_subtask_google_ids(self) -> set:

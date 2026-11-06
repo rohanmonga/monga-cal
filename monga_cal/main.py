@@ -259,9 +259,10 @@ async def get_plan(force_solve: bool = False):
     priority_overrides = await asyncio.to_thread(daemon_service.db.get_all_priority_overrides)
     kanban_projects = await asyncio.to_thread(daemon_service.db.get_kanban_projects)
     subtask_google_ids = await asyncio.to_thread(daemon_service.db.get_kanban_subtask_google_ids)
+    kanban_active_tasks = await asyncio.to_thread(daemon_service.db.get_kanban_active_tasks)
 
     tasks = prepare_scheduled_tasks(
-        raw_tasks, kanban_projects, subtask_google_ids, active_deferrals, priority_overrides, now
+        raw_tasks, kanban_projects, subtask_google_ids, active_deferrals, priority_overrides, now, kanban_active_tasks
     )
     estimated_tasks = await asyncio.to_thread(daemon_service.ai.estimate_tasks_batch, tasks)
     for et in estimated_tasks:

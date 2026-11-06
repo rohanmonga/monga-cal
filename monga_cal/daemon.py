@@ -19,16 +19,30 @@ def prepare_scheduled_tasks(
     subtask_google_ids: Set[str],
     active_deferrals: Dict[str, date],
     priority_overrides: Dict[str, int],
-    now: datetime
+    now: datetime,
+    kanban_active_tasks: Optional[List[Dict[str, Any]]] = None
 ) -> List[Task]:
     """
-    Filters out micro-subtasks from Google Tasks, and injects top-level macro projects
-    from Kanban, ensuring zero calendar clutter and keeping calendar in sync with Kanban.
+    Selectively collapses ONLY explicit multi-subtask checklist projects (like # Protect Kids SSN),
+    while preserving individual actionable tasks across all other projects and lists for high utility
+    and rich schedule variety.
     """
     tasks: List[Task] = []
-    project_titles_lower = {p["title"].strip().lower() for p in kanban_projects}
+    
+    # 1. Identify explicit collapsible projects (projects with micro-subtasks or # prefix)
+    collapsible_projects = []
+    collapsible_project_ids = set()
+    collapsible_titles_lower = set()
 
-    # 1. Filter raw Google Tasks: exclude all micro-subtasks and project headers
+    for p in kanban_projects:
+        subtask_cnt = p.get("subtask_count") or 0
+        title = (p.get("title") or "").strip()
+        if subtask_cnt > 0 or title.startswith("#"):
+            collapsible_projects.append(p)
+            collapsible_project_ids.add(p["id"])
+            collapsible_titles_lower.add(title.lower())
+
+    # 2. Filter raw Google Tasks: exclude micro-subtasks and collapsible project headers
     for t in raw_tasks:
         t_clean = t.title.strip()
         is_subtask = (
@@ -39,11 +53,11 @@ def prepare_scheduled_tasks(
             t_clean.startswith("* ")
         )
         if is_subtask:
-            # Micro-subtask is tracked inside Kanban, NOT scheduled on calendar
+            # Micro-subtask tracked inside Kanban, NOT scheduled as calendar block
             continue
 
-        # If a Google Task matches a macro project title, macro project block represents it
-        if t_clean.lower() in project_titles_lower:
+        # If a Google Task matches a collapsible macro project title, macro block represents it
+        if t_clean.lower() in collapsible_titles_lower:
             continue
 
         t.deferred_until = active_deferrals.get(t.id)
@@ -51,17 +65,16 @@ def prepare_scheduled_tasks(
             t.priority_score = max(1, min(5, priority_overrides[t.id]))
         tasks.append(t)
 
-    # 2. Inject Top-Level Macro Projects from Kanban Board
+    # 3. Inject Top-Level Macro Focus Block ONLY for explicit collapsible projects
     weekday = now.weekday() # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
-    for p in kanban_projects:
+    for p in collapsible_projects:
         proj_id = p["id"]
         title = p["title"]
-        icon = p.get("icon") or "📁"
+        icon = p.get("icon") or "🛡️"
         cadence = p.get("schedule_cadence") or "Day 1, 3, 5"
         today_count = p.get("today_tasks") or 0
         active_count = p.get("active_tasks") or 0
 
-        # Cadence matching: Day 1, 3, 5 = Mon, Wed, Fri; Day 2, 4 = Tue, Thu; Daily = all days
         cad_lower = cadence.lower()
         if "daily" in cad_lower:
             is_cadence_day = True
@@ -74,10 +87,6 @@ def prepare_scheduled_tasks(
         else:
             is_cadence_day = True
 
-        # Determine priority:
-        # P1 if user has tasks in Kanban 'today' lane!
-        # P2 if today is cadence day
-        # P3 if active tasks exist
         if today_count > 0:
             prio = 1
         elif is_cadence_day:
@@ -110,6 +119,55 @@ def prepare_scheduled_tasks(
             macro_task.priority_score = max(1, min(5, priority_overrides[task_id]))
 
         tasks.append(macro_task)
+
+    # 4. Integrate actionable individual tasks from non-collapsible projects (kanban_active_tasks)
+    seen_ids = {t.id for t in tasks}
+    seen_titles = {t.title.strip().lower() for t in tasks}
+
+    if kanban_active_tasks:
+        for kt in kanban_active_tasks:
+            # Skip tasks belonging to collapsible projects (covered by the macro block)
+            if kt["project_id"] in collapsible_project_ids:
+                continue
+
+            tid = kt.get("google_task_id") or kt["id"]
+            title = kt["title"].strip()
+
+            # If already present via Google Tasks, attach the project_id for deep linking
+            if tid in seen_ids or title.lower() in seen_titles:
+                for existing in tasks:
+                    if existing.id == tid or existing.title.strip().lower() == title.lower():
+                        if not existing.project_id:
+                            existing.project_id = kt["project_id"]
+                continue
+
+            # Create individual schedulable task
+            prio = priority_overrides.get(tid, kt.get("priority_score", 3))
+            if kt.get("kanban_column") == "today":
+                prio = min(prio, 1)
+
+            proj_title = kt.get("project_title") or "Kanban"
+            proj_icon = kt.get("project_icon") or "📌"
+            proj_color = kt.get("project_color") or "neutral"
+
+            t_obj = Task(
+                id=tid,
+                title=title,
+                notes=kt.get("notes") or "",
+                list_name=proj_title,
+                estimated_minutes=kt.get("estimated_minutes") or 30,
+                priority_score=prio,
+                energy=kt.get("energy") or "medium",
+                category=proj_title,
+                category_icon=proj_icon,
+                color_preset=proj_color,
+                manager_directive=f"Project Task: {proj_title}",
+                project_id=kt["project_id"]
+            )
+            t_obj.deferred_until = active_deferrals.get(tid)
+            tasks.append(t_obj)
+            seen_ids.add(tid)
+            seen_titles.add(title.lower())
 
     return tasks
 
@@ -175,9 +233,10 @@ class DaemonService:
 
                 kanban_projects = await asyncio.to_thread(self.db.get_kanban_projects)
                 subtask_google_ids = await asyncio.to_thread(self.db.get_kanban_subtask_google_ids)
+                kanban_active_tasks = await asyncio.to_thread(self.db.get_kanban_active_tasks)
 
                 tasks = prepare_scheduled_tasks(
-                    raw_tasks, kanban_projects, subtask_google_ids, active_deferrals, priority_overrides, now
+                    raw_tasks, kanban_projects, subtask_google_ids, active_deferrals, priority_overrides, now, kanban_active_tasks
                 )
                 self.status.tasks_count = len(tasks)
 
