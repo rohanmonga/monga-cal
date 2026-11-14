@@ -86,8 +86,30 @@ docker-compose up -d --build
 
 ---
 
-## Fridge Tablet Setup (onn 12.1" / Fully Kiosk)
+## Fridge Tablet & Kiosk Setup (onn 12.1" Android Tablet)
 
-1. Open **Fully Kiosk Browser** on your Android tablet.
-2. Set Start URL to `http://<raspberry-pi-ip>:8000`.
-3. Enable "Keep Screen On" and Auto-Refresh (optional).
+Monga Cal runs natively as the primary wall dashboard on an Android tablet using the **Home Assistant Companion App** (or Chrome browser):
+
+1. **Native Screen Wake Lock**:
+   - Monga Cal utilizes the standard **HTML5 Screen Wake Lock API** (`navigator.wakeLock.request('screen')`) to prevent the display from sleeping during normal operation.
+   - Automatically re-acquires the wake lock on touch events and `visibilitychange`.
+2. **Remote Sleep / Wake Control**:
+   - `/api/tablet/screen/sleep`: Releases the screen wake lock and puts the dashboard into sleep mode.
+   - `/api/tablet/screen/wake`: Re-acquires the wake lock and brings the dashboard alive.
+   - `/api/tablet/screen/toggle`: Toggles between sleep and awake.
+   - `/api/tablet/screen/status`: Returns `{"sleeping": bool}`.
+
+---
+
+## Smart Charger & Battery Life Safety (Matter Architecture)
+
+To maximize battery health and prevent swelling on 24/7 wall-mounted tablets, charging is controlled via a TP-Link KP125M smart plug commissioned over **Matter**:
+
+- **Matter-over-Wi-Fi**: Operated via the standalone `matter-server` container (`ghcr.io/home-assistant-libs/python-matter-server:stable`) on the Raspberry Pi host network.
+- **Immune to IP Drift**: Matter devices communicate via IPv6 Multicast and persistent Node IDs, eliminating DHCP lease disconnects.
+- **Battery Cycle Automations (`scripts/automations.yaml`)**:
+  - **Start Charging**: Automatically turns on at **40%** battery (`switch.temple_dashboard_charger`).
+  - **Stop Charging**: Automatically cuts power at **80%** battery.
+  - **Thermal Safety Cutoff**: Disables charging if battery exceeds **35°C**; dims display if temp exceeds **43°C**.
+  - **Safety Watchdogs**: Failsafe cutoff at **85%** and a 4-hour max continuous charge timer.
+
