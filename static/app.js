@@ -271,16 +271,24 @@ function initEventListeners() {
     themeToggleBtn.addEventListener('click', toggleThemeCycle);
   }
 
-  // Tablet Screen Sleep Button in Header (delegates to Home Assistant automations.yaml)
+  // Tablet Screen Toggle Button in Header (delegates to Home Assistant automations.yaml)
   const toggleScreenBtn = document.getElementById('toggleScreenBtn');
   if (toggleScreenBtn) {
     toggleScreenBtn.addEventListener('click', async () => {
-      releaseScreenWakeLock();
       try {
-        await fetch('/api/tablet/screen/sleep', { method: 'POST' });
-        showToast('Sleeping tablet screen...', 'info');
+        const res = await fetch('/api/tablet/screen/toggle', { method: 'POST' });
+        const data = await res.json();
+        if (data.sleeping) {
+          releaseScreenWakeLock();
+          showToast('Sleeping tablet screen...', 'info');
+        } else {
+          if (localStorage.getItem('monga_keep_awake') !== 'false') {
+            await requestScreenWakeLock();
+          }
+          showToast('Tablet screen awake', 'success');
+        }
       } catch (err) {
-        console.error('Failed to trigger screen sleep:', err);
+        console.error('Failed to toggle tablet screen:', err);
       }
     });
   }
@@ -824,6 +832,14 @@ async function fetchPlan() {
     currentTasks = data.tasks || [];
     currentSchedule = data.schedule || { blocks: [], fixed_events: [], unscheduled_task_ids: [], solver_stats: {} };
     currentConfig = data.config || currentConfig;
+
+    if (data.tablet_screen) {
+      if (data.tablet_screen.sleeping) {
+        releaseScreenWakeLock();
+      } else if (localStorage.getItem('monga_keep_awake') !== 'false' && !wakeLockSentinel) {
+        requestScreenWakeLock();
+      }
+    }
 
     const solverBadge = document.getElementById('solverTelemetryBadge');
     if (solverBadge && currentSchedule.solver_stats) {
@@ -2425,9 +2441,27 @@ function initTabletPreferences() {
     document.body.classList.add('kiosk-mode');
   }
 
-  // Always allow Home Assistant Companion App (automations.yaml) to control screen wake/sleep
-  localStorage.removeItem('monga_keep_awake');
-  releaseScreenWakeLock();
+  // Keep screen awake by default for wall tablet kiosk
+  if (localStorage.getItem('monga_keep_awake') === null) {
+    localStorage.setItem('monga_keep_awake', 'true');
+  }
+  if (localStorage.getItem('monga_keep_awake') !== 'false') {
+    requestScreenWakeLock();
+  }
+
+  // Re-acquire wake lock on visibility change (e.g. tablet wakes or tab focused)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && localStorage.getItem('monga_keep_awake') !== 'false') {
+      requestScreenWakeLock();
+    }
+  });
+
+  // Re-acquire on user tap/interaction if released
+  window.addEventListener('pointerdown', () => {
+    if (!wakeLockSentinel && localStorage.getItem('monga_keep_awake') !== 'false') {
+      requestScreenWakeLock();
+    }
+  }, { passive: true });
 }
 
 function populateSettingsForm() {
@@ -2446,7 +2480,7 @@ function populateSettingsForm() {
 
   const wakeLockCheckbox = document.getElementById('wakeLockSettingCheckbox');
   const kioskCheckbox = document.getElementById('kioskFitSettingCheckbox');
-  if (wakeLockCheckbox) wakeLockCheckbox.checked = localStorage.getItem('monga_keep_awake') === 'true';
+  if (wakeLockCheckbox) wakeLockCheckbox.checked = localStorage.getItem('monga_keep_awake') !== 'false';
   if (kioskCheckbox) kioskCheckbox.checked = document.body.classList.contains('kiosk-mode');
 
   const currentPref = getStoredThemePreference();

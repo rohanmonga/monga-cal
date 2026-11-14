@@ -292,6 +292,7 @@ async def get_plan(force_solve: bool = False):
                 }
             ).model_dump(mode="json"),
             "config": get_config(),
+            "tablet_screen": {"sleeping": _tablet_screen_sleeping},
         }
 
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
@@ -300,6 +301,7 @@ async def get_plan(force_solve: bool = False):
         "tasks": [t.model_dump(mode="json") for t in estimated_tasks],
         "schedule": plan.model_dump(mode="json"),
         "config": get_config(),
+        "tablet_screen": {"sleeping": _tablet_screen_sleeping},
     }
 
 @app.get("/api/history")
@@ -517,6 +519,14 @@ async def wake_tablet(from_ha: bool = False):
     except Exception as e:
         logger.warning(f"Failed to wake tablet screen via HA: {e}")
         return {"status": "error", "error": str(e), "sleeping": False}
+
+@app.post("/api/tablet/screen/toggle")
+async def toggle_tablet():
+    global _tablet_screen_sleeping
+    if _tablet_screen_sleeping:
+        return await wake_tablet()
+    else:
+        return await sleep_tablet()
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
