@@ -1,6 +1,6 @@
 - alias: "Tablet - Start charging at 40%"
   id: tablet_start_charging_40
-  description: "Turn Kasa on when tablet drops low"
+  description: "Turn Matter charger on when tablet drops low"
   mode: single
   trigger:
     - platform: numeric_state
@@ -8,7 +8,7 @@
       below: 41
   condition:
     - condition: state
-      entity_id: switch.smart_plug
+      entity_id: switch.temple_dashboard_charger
       state: "off"
     - condition: numeric_state
       entity_id: sensor.100146663_battery_temperature
@@ -16,24 +16,24 @@
   action:
     - action: switch.turn_on
       target:
-        entity_id: switch.smart_plug
+        entity_id: switch.temple_dashboard_charger
 
 - alias: "Tablet - Stop charging at 80%"
   id: tablet_stop_charging_80
-  description: "Turn Kasa off to avoid swelling"
+  description: "Turn Matter charger off to avoid swelling"
   mode: single
   trigger:
     - platform: numeric_state
       entity_id: sensor.100146663_battery_level
       above: 79
     - platform: state
-      entity_id: switch.smart_plug
+      entity_id: switch.temple_dashboard_charger
       to: "on"
     - platform: homeassistant
       event: start
   condition:
     - condition: state
-      entity_id: switch.smart_plug
+      entity_id: switch.temple_dashboard_charger
       state: "on"
     - condition: numeric_state
       entity_id: sensor.100146663_battery_level
@@ -41,7 +41,7 @@
   action:
     - action: switch.turn_off
       target:
-        entity_id: switch.smart_plug
+        entity_id: switch.temple_dashboard_charger
 
 - alias: "Tablet - Safety cutoff at 85%"
   id: tablet_safety_cutoff_85
@@ -54,7 +54,7 @@
   action:
     - action: switch.turn_off
       target:
-        entity_id: switch.smart_plug
+        entity_id: switch.temple_dashboard_charger
 
 - alias: "Tablet - Charging watchdog cutoff"
   id: tablet_charge_watchdog_timeout
@@ -62,14 +62,14 @@
   mode: single
   trigger:
     - platform: state
-      entity_id: switch.smart_plug
+      entity_id: switch.temple_dashboard_charger
       to: "on"
       for:
         hours: 4
   action:
     - action: switch.turn_off
       target:
-        entity_id: switch.smart_plug
+        entity_id: switch.temple_dashboard_charger
     - action: persistent_notification.create
       data:
         title: "Tablet charge watchdog cutoff"
@@ -179,7 +179,7 @@
   action:
     - action: switch.turn_off
       target:
-        entity_id: switch.smart_plug
+        entity_id: switch.temple_dashboard_charger
     - action: persistent_notification.create
       data:
         title: "Tablet battery overheating"
@@ -199,7 +199,7 @@
   action:
     - action: switch.turn_off
       target:
-        entity_id: switch.smart_plug
+        entity_id: switch.temple_dashboard_charger
     - action: notify.mobile_app_100146663
       data:
         message: command_screen_on
@@ -377,4 +377,19 @@
   action:
     - action: switch.turn_off
       target:
-        entity_id: switch.smart_plug
+        entity_id: switch.temple_dashboard_charger
+
+- alias: "Tablet - Start Charging Webhook"
+  id: tablet_start_charging_webhook
+  description: "Manually turn on charger plug via webhook"
+  mode: single
+  trigger:
+    - platform: webhook
+      webhook_id: start_tablet_charging
+      allowed_methods:
+        - POST
+      local_only: true
+  action:
+    - action: switch.turn_on
+      target:
+        entity_id: switch.temple_dashboard_charger
