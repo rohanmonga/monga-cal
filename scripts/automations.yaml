@@ -26,10 +26,18 @@
     - platform: numeric_state
       entity_id: sensor.100146663_battery_level
       above: 79
+    - platform: state
+      entity_id: switch.smart_plug
+      to: "on"
+    - platform: homeassistant
+      event: start
   condition:
     - condition: state
       entity_id: switch.smart_plug
       state: "on"
+    - condition: numeric_state
+      entity_id: sensor.100146663_battery_level
+      above: 79
   action:
     - action: switch.turn_off
       target:
@@ -355,3 +363,18 @@
           command: "/dashboard-calendar"
           ttl: 0
           priority: high
+
+- alias: "Tablet - Cut Charging Webhook"
+  id: tablet_cut_charging_webhook
+  description: "Manually turn off charger plug via webhook"
+  mode: single
+  trigger:
+    - platform: webhook
+      webhook_id: cut_tablet_charging
+      allowed_methods:
+        - POST
+      local_only: true
+  action:
+    - action: switch.turn_off
+      target:
+        entity_id: switch.smart_plug
