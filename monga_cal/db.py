@@ -42,11 +42,12 @@ class Database:
             try:
                 self._pool = ThreadedConnectionPool(
                     minconn=1,
-                    maxconn=10,
+                    maxconn=4,
                     dsn=self.connection_string,
+                    options="-c timezone=America/Los_Angeles",
                     cursor_factory=RealDictCursor
                 )
-                logger.info("Initialized PostgreSQL ThreadedConnectionPool (minconn=1, maxconn=10)")
+                logger.info("Initialized PostgreSQL ThreadedConnectionPool (minconn=1, maxconn=4, tz=America/Los_Angeles)")
             except Exception as e:
                 logger.error(f"Failed to create PostgreSQL connection pool: {e}")
                 raise e
@@ -768,11 +769,64 @@ class Database:
             return []
 
     def get_kanban_subtask_google_ids(self) -> set:
-        """Fetches google_task_id set for tasks flagged as subtasks in kanban_tasks."""
-        sql = "SELECT google_task_id FROM kanban_tasks WHERE is_subtask = TRUE AND google_task_id IS NOT NULL"
+        """
+        Fetches google_task_id set for tasks that should NOT be scheduled individually:
+        - Explicit subtasks (is_subtask = TRUE)
+        - Tasks marked 'done' in Kanban
+        - Tasks belonging to collapsible macro projects (# prefix or containing subtasks)
+        """
+        sql = """
+            SELECT t.google_task_id
+            FROM kanban_tasks t
+            LEFT JOIN kanban_projects p ON t.project_id = p.id
+            WHERE t.google_task_id IS NOT NULL
+              AND (
+                t.is_subtask = TRUE
+                OR t.kanban_column = 'done'
+                OR p.title LIKE ?
+                OR t.project_id IN (
+                    SELECT DISTINCT project_id
+                    FROM kanban_tasks
+                    WHERE is_subtask = TRUE AND project_id IS NOT NULL
+                )
+              )
+        """
         try:
-            rows = self._execute(sql, fetchall=True) or []
+            rows = self._execute(sql, ("#%",), fetchall=True) or []
             return {dict(r)["google_task_id"] for r in rows if dict(r).get("google_task_id")}
         except Exception as e:
             logger.warning(f"Could not query kanban subtask ids: {e}")
             return set()
+
+    def mark_kanban_task_complete(self, task_id: str, actual_minutes: Optional[int] = None) -> bool:
+        """Marks a matching Kanban task (by local id or google_task_id) as done."""
+        try:
+            row = self._execute(
+                "SELECT id, project_id FROM kanban_tasks WHERE id = ? OR google_task_id = ?",
+                (task_id, task_id),
+                fetchone=True,
+            )
+            if not row:
+                return False
+            r_dict = dict(row)
+            self._execute(
+                """
+                UPDATE kanban_tasks
+                SET kanban_column = 'done',
+                    completed_at = CURRENT_TIMESTAMP,
+                    actual_minutes = COALESCE(?, actual_minutes)
+                WHERE id = ?
+                """,
+                (actual_minutes, r_dict["id"]),
+                commit=True,
+            )
+            if r_dict.get("project_id"):
+                self._execute(
+                    "UPDATE kanban_projects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (r_dict["project_id"],),
+                    commit=True,
+                )
+            return True
+        except Exception as e:
+            logger.warning(f"Could not mark kanban task '{task_id}' complete: {e}")
+            return False

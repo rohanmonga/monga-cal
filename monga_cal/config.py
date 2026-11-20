@@ -36,7 +36,7 @@ class SchedulerConfig(BaseModel):
 
 class AIConfig(BaseModel):
     api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
-    model_name: str = "gemini-3.5-flash-lite"
+    model_name: str = "gemini-2.5-flash"
     default_duration_minutes: int = 30
     default_priority: int = 5
     history_limit: int = 20

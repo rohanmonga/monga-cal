@@ -1,17 +1,19 @@
-version: '3.8'
-
 services:
   app:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     volumes:
       - ./monga_cal.db:/app/monga_cal.db
       - ./config.yaml:/app/config.yaml
       - ./token.json:/app/token.json
+      - ./credentials.json:/app/credentials.json:ro
     environment:
       - TZ=America/Los_Angeles
       - PORT=8000
       - HOST=0.0.0.0
       - PYTHONPATH=/app
+      - RELOAD=false
     restart: unless-stopped

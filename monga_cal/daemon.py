@@ -180,6 +180,8 @@ class DaemonService:
         self.status = SyncStatus()
         self._running = False
         self._last_task_set_hash: Optional[str] = None
+        self._last_solve_time_sec: float = 0.0
+        self._on_plan_updated = None
         self._sync_lock = asyncio.Lock()
 
     def start(self):
@@ -191,6 +193,7 @@ class DaemonService:
         fixed_events: Optional[List[CalendarSlot]] = None,
         priority_overrides: Optional[Dict[str, int]] = None,
         completed_today: int = 0,
+        today_date: Optional[date] = None,
     ) -> str:
         overrides = priority_overrides or {}
         data = [
@@ -201,6 +204,7 @@ class DaemonService:
             for ev in fixed_events:
                 data.append(f"ev:{ev.event_uid or ev.title}:{ev.start.isoformat()}:{ev.end.isoformat()}")
         data.append(f"completed_today:{completed_today}")
+        data.append(f"date:{(today_date or date.today()).isoformat()}")
         return hashlib.sha256(";".join(sorted(data)).encode("utf-8")).hexdigest()
 
     def compute_plan_hash(self, blocks: List[ScheduledBlock]) -> str:
@@ -240,17 +244,18 @@ class DaemonService:
                 )
                 self.status.tasks_count = len(tasks)
 
-                # Check if task set, notes, overrides, or fixed events changed
+                # Check if task set, notes, overrides, calendar day, or fixed events changed
                 current_task_hash = self._compute_task_set_hash(
                     tasks,
                     fixed_events=fixed_events,
                     priority_overrides=priority_overrides,
                     completed_today=completed_today,
+                    today_date=now.date(),
                 )
                 task_set_changed = (current_task_hash != self._last_task_set_hash)
                 existing_plan_raw = await asyncio.to_thread(self.db.get_latest_plan)
 
-                # STABLE SCHEDULING: If no human input, no task/calendar change, no completed import, and a valid plan exists: KEEP EXISTING PLAN!
+                # STABLE SCHEDULING: If no human input, no task/calendar/day change, no completed import, and a valid plan exists: KEEP EXISTING PLAN!
                 if not force_calendar_sync and not task_set_changed and completed_imported == 0 and existing_plan_raw:
                     logger.info("No human input or task/calendar changes detected. Keeping existing stable schedule intact.")
                     await asyncio.to_thread(self.ai.estimate_tasks_batch, tasks)
@@ -266,6 +271,8 @@ class DaemonService:
                         unscheduled_task_ids=unscheduled_ids,
                         solver_stats={
                             "status": "CACHED_STABLE",
+                            "solve_time_sec": self._last_solve_time_sec,
+                            "time_sec": self._last_solve_time_sec,
                             "tasks_count": len(tasks),
                             "scheduled_count": len(existing_blocks),
                             "max_tasks_per_day": self.scheduler.max_tasks_per_day,
@@ -273,8 +280,7 @@ class DaemonService:
                         },
                     )
 
-                # Re-solve when human action or task/calendar change occurs
-                self._last_task_set_hash = current_task_hash
+                # Re-solve when human action or task/calendar/day change occurs
                 estimated_tasks = await asyncio.to_thread(self.ai.estimate_tasks_batch, tasks)
 
                 # Stable start reference: work start hour today
@@ -292,10 +298,18 @@ class DaemonService:
                     completed_today,
                 )
                 self.status.scheduled_blocks_count = len(plan.blocks)
+                self._last_solve_time_sec = float(plan.solver_stats.get("solve_time_sec") or 0.0)
 
                 new_hash = self.compute_plan_hash(plan.blocks)
                 await asyncio.to_thread(self.db.save_plan, new_hash, plan.blocks)
+                # Only advance task-set hash AFTER solve + save_plan succeed so transient failures retry next cycle
+                self._last_task_set_hash = current_task_hash
                 self.status.last_reschedule_time = datetime.now()
+                if callable(self._on_plan_updated):
+                    try:
+                        self._on_plan_updated()
+                    except Exception:
+                        pass
 
                 logger.info(f"Syncing {len(plan.blocks)} schedule blocks to Google Calendar (force={force_calendar_sync})...")
                 synced = await asyncio.to_thread(self.gservices.sync_scheduled_blocks, plan.blocks)

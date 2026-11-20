@@ -45,14 +45,18 @@ fi
 # 5. Display active tablet automation states
 echo ""
 echo "📊 Current Tablet Automation States in Home Assistant:"
-ssh "$HA_USER@$HA_HOST" 'psql "postgresql://pi:4475a9dc291aa4ec27@127.0.0.1:5432/homeassistant" -t -A -F " | " -c "
-SELECT sm.entity_id, s.state
-FROM states_meta sm
-JOIN states s ON sm.metadata_id = s.metadata_id
-WHERE sm.entity_id LIKE '\''automation.tablet_%'\''
-AND s.state_id IN (SELECT MAX(s2.state_id) FROM states s2 WHERE s2.metadata_id = sm.metadata_id)
-ORDER BY sm.entity_id;
-" | awk -F" \\| " '\''{printf "  • %-48s [%s]\n", $1, $2}'\'''
+ssh "$HA_USER@$HA_HOST" '
+PG_URL="${HA_PG_URL:-$(awk '\''/db_url:/ {print $2}'\'' ~/homeassistant/configuration.yaml)}"
+if [ -n "$PG_URL" ]; then
+  psql "$PG_URL" -t -A -F " | " -c "
+  SELECT sm.entity_id, s.state
+  FROM states_meta sm
+  JOIN states s ON sm.metadata_id = s.metadata_id
+  WHERE sm.entity_id LIKE '\''automation.tablet_%'\''
+  AND s.state_id IN (SELECT MAX(s2.state_id) FROM states s2 WHERE s2.metadata_id = sm.metadata_id)
+  ORDER BY sm.entity_id;
+  " | awk -F" \\| " '\''{printf "  • %-48s [%s]\n", $1, $2}'\''
+fi'
 
 echo "=================================================="
 echo "🎉 Deployment complete!"

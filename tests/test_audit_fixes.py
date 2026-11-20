@@ -244,6 +244,83 @@ class TestAuditFixes(unittest.TestCase):
         self.assertEqual(by_id["t_pulled"].date(), saturday_now.date())
         self.assertEqual(by_id["t_normal"].date(), datetime(2026, 10, 19, tzinfo=tz).date())
 
+    def test_midnight_rollover_changes_task_set_hash(self):
+        """
+        P0.4: Task set hash must include current date so schedule rolls over at midnight
+        even if zero tasks or calendar events changed.
+        """
+        from datetime import date
+        from monga_cal.daemon import DaemonService
+
+        svc = DaemonService.__new__(DaemonService)
+        tasks = [Task(id="t1", title="Check mail", priority_score=2)]
+        h_day1 = svc._compute_task_set_hash(tasks, today_date=date(2026, 11, 19))
+        h_day2 = svc._compute_task_set_hash(tasks, today_date=date(2026, 11, 20))
+        self.assertNotEqual(h_day1, h_day2)
+
+    def test_kanban_collapsible_done_exclusion_and_two_way_completion(self):
+        """
+        P1.2: Tasks moved into a '#' collapsible project or marked 'done' in Kanban
+        must be excluded from standalone scheduling; completing from monga-cal marks kanban_tasks done.
+        """
+        from monga_cal.gservices import GoogleServicesManager
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test_kanban_sync.db")
+            db = Database(db_path_or_url=db_path)
+
+            # Seed collapsible project (# SSN) and normal project (Finance)
+            db._execute(
+                "INSERT INTO kanban_projects (id, title, status) VALUES (?, ?, 'in_flight')",
+                ("ssn-prot", "# Protect Kids SSN"),
+                commit=True,
+            )
+            db._execute(
+                "INSERT INTO kanban_projects (id, title, status) VALUES (?, ?, 'in_flight')",
+                ("fin-prot", "Finance & Taxes"),
+                commit=True,
+            )
+            # Task moved into collapsible project (is_subtask still FALSE)
+            db._execute(
+                "INSERT INTO kanban_tasks (id, project_id, title, kanban_column, google_task_id, is_subtask) VALUES (?, ?, ?, 'backlog', ?, 0)",
+                ("k1", "ssn-prot", "Freeze Equifax", "GOOGLE_ID_MOVED_TO_SSN_123456"),
+                commit=True,
+            )
+            # Active task in normal project
+            db._execute(
+                "INSERT INTO kanban_tasks (id, project_id, title, kanban_column, google_task_id, is_subtask) VALUES (?, ?, ?, 'today', ?, 0)",
+                ("k2", "fin-prot", "Pay property tax", "GOOGLE_ID_ACTIVE_FIN_12345678"),
+                commit=True,
+            )
+            # Done task in normal project
+            db._execute(
+                "INSERT INTO kanban_tasks (id, project_id, title, kanban_column, google_task_id, is_subtask) VALUES (?, ?, ?, 'done', ?, 0)",
+                ("k3", "fin-prot", "Submit refund claim", "GOOGLE_ID_DONE_FIN_1234567890"),
+                commit=True,
+            )
+            # Local-only Kanban task (no google_task_id)
+            db._execute(
+                "INSERT INTO kanban_tasks (id, project_id, title, kanban_column, google_task_id, is_subtask) VALUES (?, ?, ?, 'today', NULL, 0)",
+                ("deadbeef", "fin-prot", "Review budget",),
+                commit=True,
+            )
+
+            excluded = db.get_kanban_subtask_google_ids()
+            self.assertIn("GOOGLE_ID_MOVED_TO_SSN_123456", excluded)
+            self.assertIn("GOOGLE_ID_DONE_FIN_1234567890", excluded)
+            self.assertNotIn("GOOGLE_ID_ACTIVE_FIN_12345678", excluded)
+
+            # Complete local-only Kanban task from monga-cal
+            self.assertTrue(GoogleServicesManager._is_local_only_task_id("deadbeef"))
+            self.assertTrue(GoogleServicesManager._is_local_only_task_id("kanban_proj_ssn-prot"))
+            self.assertFalse(GoogleServicesManager._is_local_only_task_id("ZUE2YnBFRU14QWhxT0VEOQ"))
+
+            marked = db.mark_kanban_task_complete("deadbeef", actual_minutes=20)
+            self.assertTrue(marked)
+            row = db._execute("SELECT kanban_column, actual_minutes FROM kanban_tasks WHERE id = ?", ("deadbeef",), fetchone=True)
+            self.assertEqual(dict(row)["kanban_column"], "done")
+            self.assertEqual(dict(row)["actual_minutes"], 20)
+
 
 if __name__ == "__main__":
     unittest.main()

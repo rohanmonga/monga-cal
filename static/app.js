@@ -22,10 +22,10 @@ let sprintTimerInterval = null;
 let isSprintRunning = false;
 
 /**
- * Resolves project ID for a task or scheduled block
+ * Resolves project ID for a task or scheduled block (returns null if unmapped standalone task)
  */
 function getProjectForTask(taskOrBlock) {
-  if (!taskOrBlock) return 'ssn-prot';
+  if (!taskOrBlock) return null;
   if (taskOrBlock.project_id) return taskOrBlock.project_id;
   const id = String(taskOrBlock.id || taskOrBlock.task_id || '');
   const title = String(taskOrBlock.title || taskOrBlock.task_title || '').toLowerCase();
@@ -36,17 +36,18 @@ function getProjectForTask(taskOrBlock) {
   if (title.includes('home') || title.includes('contractor') || title.includes('utilit')) return 'home-prot';
   if (title.includes('errand') || title.includes('return')) return 'errands-prot';
   if (title.includes('family') || title.includes('kid') || title.includes('health')) return 'family-prot';
-  return 'ssn-prot';
+  return null;
 }
 
 /**
- * Navigates seamlessly to the project-specific Kanban board
+ * Navigates seamlessly to the Kanban board (optionally deep-linking to a specific project)
  */
 function openProjectKanban(projId) {
-  const p = projId || 'ssn-prot';
   const host = window.location.hostname || '192.168.86.32';
   const targetPort = 8050;
-  const kanbanUrl = `http://${host}:${targetPort}/?project=${encodeURIComponent(p)}`;
+  const kanbanUrl = projId
+    ? `http://${host}:${targetPort}/?project=${encodeURIComponent(projId)}`
+    : `http://${host}:${targetPort}/`;
 
   if (window.self !== window.top) {
     // Inside Home Assistant iframe
@@ -127,8 +128,9 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchKidsStars();
   fetchHistory();
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 30 seconds (paused while screen/tab is hidden to save Pi CPU & battery)
   setInterval(() => {
+    if (document.hidden) return;
     fetchPlan();
     fetchKidsStars();
   }, 30000);
@@ -271,14 +273,28 @@ function initEventListeners() {
     themeToggleBtn.addEventListener('click', toggleThemeCycle);
   }
 
+  // Header Kanban Button (works both inside HA iframe and standalone :8000)
+  const headerKanbanBtn = document.getElementById('headerKanbanBtn');
+  if (headerKanbanBtn) {
+    headerKanbanBtn.addEventListener('click', (e) => {
+      if (window.self === window.top) {
+        e.preventDefault();
+        openProjectKanban(null);
+      }
+    });
+  }
+
   // Tablet Screen Toggle Button in Header (delegates to Home Assistant automations.yaml)
   const toggleScreenBtn = document.getElementById('toggleScreenBtn');
   if (toggleScreenBtn) {
     toggleScreenBtn.addEventListener('click', async () => {
+      lastSleepActionTs = Date.now();
       try {
         const res = await fetch('/api/tablet/screen/toggle', { method: 'POST' });
         const data = await res.json();
-        if (data.sleeping) {
+        isTabletSleeping = Boolean(data.sleeping);
+        updateScreenButtonState();
+        if (isTabletSleeping) {
           releaseScreenWakeLock();
           showToast('Sleeping tablet screen...', 'info');
         } else {
@@ -650,12 +666,18 @@ async function deleteStarRecord(recordId) {
   }
 }
 
-async function fetchKidsStars() {
+let lastKidsSignature = '';
+async function fetchKidsStars(forceRender = false) {
   try {
     const res = await fetch(`${API_BASE}/api/kids/stars`);
     if (!res.ok) return;
-    currentKidsData = await res.json();
-    renderKidsStarWidget();
+    const data = await res.json();
+    const sig = JSON.stringify(data);
+    currentKidsData = data;
+    if (forceRender || sig !== lastKidsSignature) {
+      lastKidsSignature = sig;
+      renderKidsStarWidget();
+    }
   } catch (err) {
     console.error('Error fetching kids stars:', err);
   }
@@ -822,7 +844,8 @@ function renderKidsStarWidget() {
 }
 
 let isFetchingPlan = false;
-async function fetchPlan() {
+let lastPlanSignature = '';
+async function fetchPlan(forceRender = false) {
   if (isFetchingPlan) return;
   isFetchingPlan = true;
   try {
@@ -834,24 +857,45 @@ async function fetchPlan() {
     currentConfig = data.config || currentConfig;
 
     if (data.tablet_screen) {
-      if (data.tablet_screen.sleeping) {
+      isTabletSleeping = Boolean(data.tablet_screen.sleeping);
+      updateScreenButtonState();
+      if (isTabletSleeping) {
         releaseScreenWakeLock();
-      } else if (localStorage.getItem('monga_keep_awake') !== 'false' && !wakeLockSentinel) {
+      } else if (localStorage.getItem('monga_keep_awake') !== 'false' && !wakeLockSentinel && !document.hidden) {
         requestScreenWakeLock();
       }
     }
 
     const solverBadge = document.getElementById('solverTelemetryBadge');
     if (solverBadge && currentSchedule.solver_stats) {
-      const ms = Math.max(1, Math.round((currentSchedule.solver_stats.time_sec || 0.004) * 1000));
-      solverBadge.textContent = `CP-SAT · ${ms}ms`;
+      const rawSec = currentSchedule.solver_stats.solve_time_sec ?? currentSchedule.solver_stats.time_sec;
+      if (typeof rawSec === 'number' && rawSec > 0) {
+        const ms = Math.max(1, Math.round(rawSec * 1000));
+        solverBadge.textContent = `CP-SAT · ${ms}ms`;
+      } else {
+        solverBadge.textContent = 'CP-SAT';
+      }
     }
 
     updateAuthStatus(data.status);
-    renderCurrentFocusHero();
-    renderCapacityMeter();
-    renderScheduleStream();
-    renderGanttChart();
+
+    // Avoid unnecessary full-DOM rebuilds every 30s when schedule data hasn't changed
+    const sig = JSON.stringify({
+      day: getLocalDateStr(),
+      tasks: currentTasks,
+      blocks: currentSchedule.blocks,
+      fixed: currentSchedule.fixed_events,
+      unscheduled: currentSchedule.unscheduled_task_ids,
+      completed: currentSchedule.solver_stats?.completed_today_count,
+      config: currentConfig
+    });
+    if (forceRender || sig !== lastPlanSignature) {
+      lastPlanSignature = sig;
+      renderCurrentFocusHero();
+      renderCapacityMeter();
+      renderScheduleStream();
+      renderGanttChart();
+    }
   } catch (err) {
     console.error('Error fetching plan:', err);
   } finally {
@@ -982,18 +1026,18 @@ function renderCurrentFocusHero() {
       } catch (e) {}
     }
 
-    const activeProjId = getProjectForTask(activeItem) || (activeTask ? getProjectForTask(activeTask) : 'ssn-prot');
+    const activeProjId = getProjectForTask(activeItem) || (activeTask ? getProjectForTask(activeTask) : null);
     if (heroTimeRange) heroTimeRange.textContent = `${fmtTime(dtStart)} - ${fmtTime(dtEnd)}`;
     if (heroTaskTitle) {
       heroTaskTitle.innerHTML = `${escapeHtml(activeItem.title)}${dueInfo}`;
-      heroTaskTitle.style.cursor = 'pointer';
-      heroTaskTitle.title = 'Click to open project tasks in Kanban';
-      heroTaskTitle.onclick = () => openProjectKanban(activeProjId);
+      heroTaskTitle.style.cursor = activeProjId ? 'pointer' : 'default';
+      heroTaskTitle.title = activeProjId ? 'Click to open project tasks in Kanban' : '';
+      heroTaskTitle.onclick = activeProjId ? () => openProjectKanban(activeProjId) : null;
     }
     if (heroTaskDirective) {
       heroTaskDirective.textContent = activeItem.directive;
-      heroTaskDirective.style.cursor = 'pointer';
-      heroTaskDirective.onclick = () => openProjectKanban(activeProjId);
+      heroTaskDirective.style.cursor = activeProjId ? 'pointer' : 'default';
+      heroTaskDirective.onclick = activeProjId ? () => openProjectKanban(activeProjId) : null;
     }
 
     if (heroActionsGroup) {
@@ -1038,21 +1082,21 @@ function renderCurrentFocusHero() {
       const nextEnd = new Date(nextBlock.end);
       const dayLabel = nextStart.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
       const estMins = nextTask ? (nextTask.estimated_minutes || 30) : Math.round((nextEnd - nextStart) / 60000);
-      const nextProjId = getProjectForTask(nextBlock) || (nextTask ? getProjectForTask(nextTask) : 'ssn-prot');
+      const nextProjId = getProjectForTask(nextBlock) || (nextTask ? getProjectForTask(nextTask) : null);
 
       if (heroBadge) heroBadge.textContent = 'NEXT WORKDAY SPOTLIGHT';
       if (heroTimeRemaining) heroTimeRemaining.textContent = `Scheduled ${dayLabel}`;
       if (heroTimeRange) heroTimeRange.textContent = `${dayLabel} • ${fmtTime(nextStart)} - ${fmtTime(nextEnd)}`;
       if (heroTaskTitle) {
         heroTaskTitle.textContent = nextBlock.task_title;
-        heroTaskTitle.style.cursor = 'pointer';
-        heroTaskTitle.title = 'Click to open project tasks in Kanban';
-        heroTaskTitle.onclick = () => openProjectKanban(nextProjId);
+        heroTaskTitle.style.cursor = nextProjId ? 'pointer' : 'default';
+        heroTaskTitle.title = nextProjId ? 'Click to open project tasks in Kanban' : '';
+        heroTaskTitle.onclick = nextProjId ? () => openProjectKanban(nextProjId) : null;
       }
       if (heroTaskDirective) {
         heroTaskDirective.textContent = `Today's schedule is clear (${completedToday}/${currentConfig.max_tasks_per_day || 3} slots used). Pull this #1 priority task into Today if you want to get ahead.`;
-        heroTaskDirective.style.cursor = 'pointer';
-        heroTaskDirective.onclick = () => openProjectKanban(nextProjId);
+        heroTaskDirective.style.cursor = nextProjId ? 'pointer' : 'default';
+        heroTaskDirective.onclick = nextProjId ? () => openProjectKanban(nextProjId) : null;
       }
       if (heroProgressFill) heroProgressFill.style.width = '0%';
       if (heroActionsGroup) {
@@ -1413,15 +1457,19 @@ function renderScheduleStream() {
             const icon = t.category_icon || b.category_icon || '📌';
             const isKanbanProj = (t.id && t.id.startsWith("kanban_proj_")) || (b.task_id && b.task_id.startsWith("kanban_proj_")) || t.list_name === "Projects" || b.category === "Project";
             const targetProjId = getProjectForTask(b) || getProjectForTask(t);
-            const kanbanLink = `http://${window.location.hostname || '192.168.86.32'}:8050/?project=${encodeURIComponent(targetProjId)}`;
+            const kanbanLink = targetProjId
+              ? `http://${window.location.hostname || '192.168.86.32'}:8050/?project=${encodeURIComponent(targetProjId)}`
+              : `http://${window.location.hostname || '192.168.86.32'}:8050/`;
 
             card.className = `horizon-board-card prio-${prio} ${isKanbanProj ? 'is-kanban-macro' : ''}`;
-            card.style.cursor = 'pointer';
-            card.title = `Click card to open ${b.task_title} in Kanban`;
-            card.addEventListener('click', (e) => {
-              if (e.target.closest('.hb-prio-btn, .hb-btn-pull, .hb-btn-done')) return;
-              openProjectKanban(targetProjId);
-            });
+            if (targetProjId) {
+              card.style.cursor = 'pointer';
+              card.title = `Click card to open ${b.task_title} in Kanban`;
+              card.addEventListener('click', (e) => {
+                if (e.target.closest('.hb-prio-btn, .hb-btn-pull, .hb-btn-today, .hb-btn-kanban, .hb-btn-done')) return;
+                openProjectKanban(targetProjId);
+              });
+            }
 
             card.innerHTML = `
               <div class="hb-card-top">
@@ -1435,8 +1483,8 @@ function renderScheduleStream() {
               <div class="hb-footer">
                 <span class="hb-dur">${estMins}m</span>
                 <div class="hb-actions">
-                  ${isKanbanProj ? `<a href="${kanbanLink}" class="hb-btn-pull hb-kanban-link" style="text-decoration:none;background:#0284c7;color:#fff;" title="Open in Kanban">📋 Kanban</a>` : ''}
-                  ${!isToday ? `<button class="hb-btn-pull" title="Pull into Today's schedule">⚡ Today</button>` : ''}
+                  ${isKanbanProj ? `<a href="${kanbanLink}" class="hb-btn-kanban hb-kanban-link" style="text-decoration:none;background:#0284c7;color:#fff;font-size:10px;font-weight:700;padding:3px 7px;border-radius:6px;" title="Open in Kanban">📋 Kanban</a>` : ''}
+                  ${!isToday ? `<button class="hb-btn-pull hb-btn-today" title="Pull into Today's schedule">⚡ Today</button>` : ''}
                   <button class="hb-btn-done" title="Mark Complete">✓ Done</button>
                 </div>
               </div>
@@ -1450,7 +1498,7 @@ function renderScheduleStream() {
             });
 
             const prioBtn = card.querySelector('.hb-prio-btn');
-            const pullBtn = card.querySelector('.hb-btn-pull');
+            const pullBtn = card.querySelector('.hb-btn-today');
             const doneBtn = card.querySelector('.hb-btn-done');
             if (prioBtn) prioBtn.addEventListener('click', (e) => {
               e.stopPropagation();
@@ -1662,12 +1710,14 @@ function renderScheduleStream() {
       `;
 
       const targetProjId = getProjectForTask(t);
-      card.style.cursor = 'pointer';
-      card.title = `Click card to open ${t.title} in Kanban`;
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('button, a, input, select')) return;
-        openProjectKanban(targetProjId);
-      });
+      if (targetProjId) {
+        card.style.cursor = 'pointer';
+        card.title = `Click card to open ${t.title} in Kanban`;
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('button, a, input, select')) return;
+          openProjectKanban(targetProjId);
+        });
+      }
 
       const prioBtn = card.querySelector('.badge-prio-btn');
       if (prioBtn) {
@@ -1743,17 +1793,21 @@ function buildStreamCardElement(item, fmtTime, todayStr, nowMs, allowPullToToday
 
     const isKanbanProj = (t.id && t.id.startsWith("kanban_proj_")) || (b.task_id && b.task_id.startsWith("kanban_proj_")) || t.list_name === "Projects" || b.category === "Project";
     const targetProjId = getProjectForTask(b) || getProjectForTask(t);
-    const kanbanLink = `http://${window.location.hostname || '192.168.86.32'}:8050/?project=${encodeURIComponent(targetProjId)}`;
+    const kanbanLink = targetProjId
+      ? `http://${window.location.hostname || '192.168.86.32'}:8050/?project=${encodeURIComponent(targetProjId)}`
+      : `http://${window.location.hostname || '192.168.86.32'}:8050/`;
     const kanbanBadge = isKanbanProj
       ? `<a href="${kanbanLink}" class="stream-card-badge stream-kanban-link" style="background:linear-gradient(135deg, #0284c7, #2563eb); color:#fff; text-decoration:none; display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:6px; font-weight:700; font-size:11px;" title="Open this project in Kanban">📋 Macro Project ↗</a>`
       : '';
 
-    card.style.cursor = 'pointer';
-    card.title = `Click card to open ${t.title} in Kanban`;
-    card.addEventListener('click', (e) => {
-      if (e.target.closest('button, a, input, select')) return;
-      openProjectKanban(targetProjId);
-    });
+    if (targetProjId) {
+      card.style.cursor = 'pointer';
+      card.title = `Click card to open ${t.title} in Kanban`;
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('button, a, input, select')) return;
+        openProjectKanban(targetProjId);
+      });
+    }
 
     card.innerHTML = `
       <div class="stream-card-left">
@@ -2387,8 +2441,18 @@ async function updateLoggedTime(recordId, buttonEl) {
    SETTINGS & TABLET PREFERENCES
 =================================================== */
 let wakeLockSentinel = null;
+let isTabletSleeping = false;
+let lastSleepActionTs = 0;
+
+function updateScreenButtonState() {
+  const btn = document.getElementById('toggleScreenBtn');
+  if (!btn) return;
+  btn.title = isTabletSleeping ? 'Wake Tablet Screen (currently sleeping)' : 'Sleep Tablet Screen';
+  btn.style.opacity = isTabletSleeping ? '0.55' : '1';
+}
 
 async function requestScreenWakeLock() {
+  if (isTabletSleeping || document.hidden) return;
   if ('wakeLock' in navigator) {
     try {
       wakeLockSentinel = await navigator.wakeLock.request('screen');
@@ -2449,15 +2513,32 @@ function initTabletPreferences() {
     requestScreenWakeLock();
   }
 
-  // Re-acquire wake lock on visibility change (e.g. tablet wakes or tab focused)
+  // Re-acquire wake lock on visibility change ONLY if tablet is NOT in sleep mode; also refresh stale data
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && localStorage.getItem('monga_keep_awake') !== 'false') {
-      requestScreenWakeLock();
+    if (document.visibilityState === 'visible') {
+      fetchPlan();
+      fetchKidsStars();
+      if (!isTabletSleeping && localStorage.getItem('monga_keep_awake') !== 'false') {
+        requestScreenWakeLock();
+      }
     }
   });
 
-  // Re-acquire on user tap/interaction if released
-  window.addEventListener('pointerdown', () => {
+  // Deliberate user tap while tablet is sleeping wakes HA (restores brightness + timeout) & re-acquires Wake Lock
+  window.addEventListener('pointerdown', (e) => {
+    if (e.target && e.target.closest && e.target.closest('#toggleScreenBtn')) return;
+    if (Date.now() - lastSleepActionTs < 3000) return;
+
+    if (isTabletSleeping) {
+      isTabletSleeping = false;
+      updateScreenButtonState();
+      fetch('/api/tablet/screen/wake', { method: 'POST' }).catch(err => console.warn('Tap-to-wake error:', err));
+      if (localStorage.getItem('monga_keep_awake') !== 'false') {
+        requestScreenWakeLock();
+      }
+      return;
+    }
+
     if (!wakeLockSentinel && localStorage.getItem('monga_keep_awake') !== 'false') {
       requestScreenWakeLock();
     }

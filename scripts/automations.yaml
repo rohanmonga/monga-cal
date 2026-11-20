@@ -6,10 +6,18 @@
     - platform: numeric_state
       entity_id: sensor.100146663_battery_level
       below: 41
+    - platform: state
+      entity_id: switch.temple_dashboard_charger
+      to: "off"
+    - platform: homeassistant
+      event: start
   condition:
     - condition: state
       entity_id: switch.temple_dashboard_charger
       state: "off"
+    - condition: numeric_state
+      entity_id: sensor.100146663_battery_level
+      below: 41
     - condition: numeric_state
       entity_id: sensor.100146663_battery_temperature
       below: 35
@@ -20,12 +28,12 @@
 
 - alias: "Tablet - Stop charging at 80%"
   id: tablet_stop_charging_80
-  description: "Turn Matter charger off to avoid swelling"
+  description: "Turn Matter charger off at >=78% (accounts for 15m Android sensor cadence so peak stays ~80%)"
   mode: single
   trigger:
     - platform: numeric_state
       entity_id: sensor.100146663_battery_level
-      above: 79
+      above: 77
     - platform: state
       entity_id: switch.temple_dashboard_charger
       to: "on"
@@ -37,7 +45,7 @@
       state: "on"
     - condition: numeric_state
       entity_id: sensor.100146663_battery_level
-      above: 79
+      above: 77
   action:
     - action: switch.turn_off
       target:
@@ -66,6 +74,11 @@
       to: "on"
       for:
         hours: 4
+    - platform: state
+      entity_id: binary_sensor.100146663_is_charging
+      to: "on"
+      for:
+        hours: 4
   action:
     - action: switch.turn_off
       target:
@@ -79,19 +92,30 @@
 
 - alias: "Tablet Screen - Off at night"
   id: tablet_screen_off_night
-  description: "Turn helper OFF and sleep screen at 10 PM"
+  description: "Turn helper OFF and sleep screen at 10 PM (forces sleep even if helper already off)"
   mode: single
   trigger:
     - platform: time
       at: "22:00:00"
   action:
-    - action: input_boolean.turn_off
-      target:
-        entity_id: input_boolean.tablet_screen
+    - if:
+        - condition: state
+          entity_id: input_boolean.tablet_screen
+          state: "on"
+      then:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.tablet_screen
+      else:
+        - action: automation.trigger
+          target:
+            entity_id: automation.tablet_screen_helper_state_handler
+          data:
+            skip_condition: true
 
 - alias: "Tablet Screen - Helper State Handler"
   id: tablet_screen_helper_handler
-  description: "Wake or sleep tablet screen when input_boolean.tablet_screen changes"
+  description: "Wake or sleep tablet screen (and sync Monga Cal Wake Lock) when input_boolean.tablet_screen changes"
   mode: restart
   trigger:
     - platform: state
@@ -103,6 +127,7 @@
               entity_id: input_boolean.tablet_screen
               state: "on"
           sequence:
+            - action: rest_command.monga_cal_screen_wake
             - action: notify.mobile_app_100146663
               data:
                 message: command_screen_off_timeout
@@ -136,6 +161,7 @@
               entity_id: input_boolean.tablet_screen
               state: "off"
           sequence:
+            - action: rest_command.monga_cal_screen_sleep
             - action: notify.mobile_app_100146663
               data:
                 message: command_screen_on
@@ -200,6 +226,10 @@
     - action: switch.turn_off
       target:
         entity_id: switch.temple_dashboard_charger
+    - action: rest_command.monga_cal_screen_sleep
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.tablet_screen
     - action: notify.mobile_app_100146663
       data:
         message: command_screen_on
@@ -297,14 +327,20 @@
         - POST
       local_only: true
   action:
-    - action: input_boolean.turn_on
-      target:
-        entity_id: input_boolean.tablet_screen
-    - action: automation.trigger
-      target:
-        entity_id: automation.tablet_screen_helper_state_handler
-      data:
-        skip_condition: true
+    - if:
+        - condition: state
+          entity_id: input_boolean.tablet_screen
+          state: "off"
+      then:
+        - action: input_boolean.turn_on
+          target:
+            entity_id: input_boolean.tablet_screen
+      else:
+        - action: automation.trigger
+          target:
+            entity_id: automation.tablet_screen_helper_state_handler
+          data:
+            skip_condition: true
 
 - alias: "Tablet - Sleep Screen Webhook"
   id: tablet_sleep_screen_webhook
@@ -317,14 +353,20 @@
         - POST
       local_only: true
   action:
-    - action: input_boolean.turn_off
-      target:
-        entity_id: input_boolean.tablet_screen
-    - action: automation.trigger
-      target:
-        entity_id: automation.tablet_screen_helper_state_handler
-      data:
-        skip_condition: true
+    - if:
+        - condition: state
+          entity_id: input_boolean.tablet_screen
+          state: "on"
+      then:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.tablet_screen
+      else:
+        - action: automation.trigger
+          target:
+            entity_id: automation.tablet_screen_helper_state_handler
+          data:
+            skip_condition: true
 
 - alias: "Tablet - Open Profile Webhook"
   id: tablet_open_profile_webhook

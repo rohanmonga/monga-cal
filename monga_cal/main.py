@@ -1,10 +1,11 @@
 import os
 import html
+import time
 import asyncio
 import logging
 from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,10 +24,31 @@ logging.basicConfig(
 logger = logging.getLogger("monga_cal")
 
 bg_task: Optional[asyncio.Task] = None
+_tablet_screen_sleeping: bool = False
+_plan_cache: Optional[Dict[str, Any]] = None
+_plan_cache_ts: float = 0.0
+_plan_cache_lock = asyncio.Lock()
+PLAN_CACHE_TTL_SECONDS = 45.0
+
+
+def invalidate_plan_cache():
+    global _plan_cache, _plan_cache_ts
+    _plan_cache = None
+    _plan_cache_ts = 0.0
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bg_task
+    global bg_task, _tablet_screen_sleeping
+    try:
+        saved_sleep = await asyncio.to_thread(daemon_service.db.get_setting, "tablet_screen_sleeping")
+        if isinstance(saved_sleep, bool):
+            _tablet_screen_sleeping = saved_sleep
+            logger.info(f"Restored tablet_screen_sleeping={_tablet_screen_sleeping} from DB")
+    except Exception as e:
+        logger.warning(f"Could not restore tablet_screen_sleeping setting: {e}")
+
+    daemon_service._on_plan_updated = invalidate_plan_cache
     logger.info("Starting monga-cal background daemon...")
     bg_task = asyncio.create_task(daemon_service.loop())
     yield
@@ -34,6 +56,7 @@ async def lifespan(app: FastAPI):
     daemon_service._running = False
     if bg_task:
         bg_task.cancel()
+    daemon_service.db.close()
 
 app = FastAPI(
     title="Google Tasks + Google Calendar AI Manager",
@@ -229,8 +252,15 @@ async def update_config(req: ScheduleSettingsRequest, background_tasks: Backgrou
     logger.info("Updated schedule settings & saved to DB + config.yaml")
     
     daemon_service.gservices.invalidate_cache()
+    invalidate_plan_cache()
     background_tasks.add_task(daemon_service.run_sync_cycle, True)
     return {"message": "Schedule configuration updated successfully", "config": get_config()}
+
+@app.get("/api/raw-tasks")
+async def get_raw_tasks():
+    """Returns raw unfiltered Google Tasks for non-destructive Kanban sync."""
+    raw_tasks = await asyncio.to_thread(daemon_service.gservices.fetch_tasks)
+    return {"tasks": [t.model_dump(mode="json") for t in raw_tasks]}
 
 @app.get("/api/today")
 async def get_today_schedule():
@@ -248,61 +278,88 @@ async def get_today_schedule():
 
 @app.get("/api/plan")
 async def get_plan(force_solve: bool = False):
-    existing_plan_raw = await asyncio.to_thread(daemon_service.db.get_latest_plan)
-    now = datetime.now()
-    start_dt = datetime.combine(now.date(), datetime.min.time())
-    end_dt = start_dt + timedelta(days=14)
-    fixed_events = await asyncio.to_thread(daemon_service.gservices.fetch_fixed_events, start_dt, end_dt)
+    global _plan_cache, _plan_cache_ts
 
-    raw_tasks = await asyncio.to_thread(daemon_service.gservices.fetch_tasks)
-    active_deferrals = await asyncio.to_thread(daemon_service.db.get_all_active_deferrals)
-    priority_overrides = await asyncio.to_thread(daemon_service.db.get_all_priority_overrides)
-    kanban_projects = await asyncio.to_thread(daemon_service.db.get_kanban_projects)
-    subtask_google_ids = await asyncio.to_thread(daemon_service.db.get_kanban_subtask_google_ids)
-    kanban_active_tasks = await asyncio.to_thread(daemon_service.db.get_kanban_active_tasks)
-
-    tasks = prepare_scheduled_tasks(
-        raw_tasks, kanban_projects, subtask_google_ids, active_deferrals, priority_overrides, now, kanban_active_tasks
-    )
-    estimated_tasks = await asyncio.to_thread(daemon_service.ai.estimate_tasks_batch, tasks)
-    for et in estimated_tasks:
-        saved_prio = priority_overrides.get(et.id)
-        if saved_prio:
-            et.priority_score = max(1, min(5, saved_prio))
-
-    if not force_solve and existing_plan_raw:
-        blocks = [ScheduledBlock(**b) for b in existing_plan_raw]
-        # Prune any legacy micro-subtasks from old schedules
-        blocks = [b for b in blocks if b.task_id not in subtask_google_ids and not b.task_title.startswith("- [")]
-        scheduled_ids = {b.task_id for b in blocks}
-        unscheduled_ids = [t.id for t in estimated_tasks if t.id not in scheduled_ids]
-        completed_today = await asyncio.to_thread(daemon_service.db.get_completed_count_today)
-        
+    # Fast in-memory cached path (prevents 9 DB queries + Google API calls every 30s per client)
+    if not force_solve and _plan_cache is not None and (time.monotonic() - _plan_cache_ts) < PLAN_CACHE_TTL_SECONDS:
         return {
+            **_plan_cache,
             "status": get_status(),
-            "tasks": [t.model_dump(mode="json") for t in estimated_tasks],
-            "schedule": SchedulePlan(
-                blocks=blocks,
-                fixed_events=fixed_events,
-                unscheduled_task_ids=unscheduled_ids,
-                solver_stats={
-                    "status": "STABLE_PRESERVED",
-                    "max_tasks_per_day": config.scheduler.max_tasks_per_day,
-                    "completed_today_count": completed_today
-                }
-            ).model_dump(mode="json"),
-            "config": get_config(),
             "tablet_screen": {"sleeping": _tablet_screen_sleeping},
         }
 
-    plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
-    return {
-        "status": get_status(),
-        "tasks": [t.model_dump(mode="json") for t in estimated_tasks],
-        "schedule": plan.model_dump(mode="json"),
-        "config": get_config(),
-        "tablet_screen": {"sleeping": _tablet_screen_sleeping},
-    }
+    async with _plan_cache_lock:
+        if not force_solve and _plan_cache is not None and (time.monotonic() - _plan_cache_ts) < PLAN_CACHE_TTL_SECONDS:
+            return {
+                **_plan_cache,
+                "status": get_status(),
+                "tablet_screen": {"sleeping": _tablet_screen_sleeping},
+            }
+
+        existing_plan_raw = await asyncio.to_thread(daemon_service.db.get_latest_plan)
+        now = datetime.now()
+        start_dt = datetime.combine(now.date(), datetime.min.time())
+        end_dt = start_dt + timedelta(days=14)
+        fixed_events = await asyncio.to_thread(daemon_service.gservices.fetch_fixed_events, start_dt, end_dt)
+
+        raw_tasks = await asyncio.to_thread(daemon_service.gservices.fetch_tasks)
+        active_deferrals = await asyncio.to_thread(daemon_service.db.get_all_active_deferrals)
+        priority_overrides = await asyncio.to_thread(daemon_service.db.get_all_priority_overrides)
+        kanban_projects = await asyncio.to_thread(daemon_service.db.get_kanban_projects)
+        subtask_google_ids = await asyncio.to_thread(daemon_service.db.get_kanban_subtask_google_ids)
+        kanban_active_tasks = await asyncio.to_thread(daemon_service.db.get_kanban_active_tasks)
+
+        tasks = prepare_scheduled_tasks(
+            raw_tasks, kanban_projects, subtask_google_ids, active_deferrals, priority_overrides, now, kanban_active_tasks
+        )
+        estimated_tasks = await asyncio.to_thread(daemon_service.ai.estimate_tasks_batch, tasks)
+        for et in estimated_tasks:
+            saved_prio = priority_overrides.get(et.id)
+            if saved_prio:
+                et.priority_score = max(1, min(5, saved_prio))
+
+        if not force_solve and existing_plan_raw:
+            blocks = [ScheduledBlock(**b) for b in existing_plan_raw]
+            # Prune any legacy micro-subtasks or tasks moved into collapsible/done projects
+            blocks = [b for b in blocks if b.task_id not in subtask_google_ids and not b.task_title.startswith("- [")]
+            scheduled_ids = {b.task_id for b in blocks}
+            unscheduled_ids = [t.id for t in estimated_tasks if t.id not in scheduled_ids]
+            completed_today = await asyncio.to_thread(daemon_service.db.get_completed_count_today)
+            solve_sec = daemon_service._last_solve_time_sec
+
+            payload = {
+                "status": get_status(),
+                "tasks": [t.model_dump(mode="json") for t in estimated_tasks],
+                "schedule": SchedulePlan(
+                    blocks=blocks,
+                    fixed_events=fixed_events,
+                    unscheduled_task_ids=unscheduled_ids,
+                    solver_stats={
+                        "status": "STABLE_PRESERVED",
+                        "solve_time_sec": solve_sec,
+                        "time_sec": solve_sec,
+                        "max_tasks_per_day": config.scheduler.max_tasks_per_day,
+                        "completed_today_count": completed_today
+                    }
+                ).model_dump(mode="json"),
+                "config": get_config(),
+                "tablet_screen": {"sleeping": _tablet_screen_sleeping},
+            }
+            _plan_cache = payload
+            _plan_cache_ts = time.monotonic()
+            return payload
+
+        plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
+        payload = {
+            "status": get_status(),
+            "tasks": [t.model_dump(mode="json") for t in estimated_tasks],
+            "schedule": plan.model_dump(mode="json"),
+            "config": get_config(),
+            "tablet_screen": {"sleeping": _tablet_screen_sleeping},
+        }
+        _plan_cache = payload
+        _plan_cache_ts = time.monotonic()
+        return payload
 
 @app.get("/api/history")
 async def get_completion_history():
@@ -369,6 +426,7 @@ async def add_task(req: AddTaskRequest):
     if req.priority_score is not None:
         await asyncio.to_thread(daemon_service.db.save_priority_override, final_id, prio)
     logger.info(f"Added task: '{req.title}' (ID: {final_id}, P{prio}, due={req.due})")
+    invalidate_plan_cache()
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {
         "message": "Task added successfully",
@@ -384,6 +442,7 @@ async def update_task_priority(task_id: str, req: PriorityOverrideRequest):
     logger.info(f"Updated task '{task_id}' priority to P{prio}")
     
     daemon_service.gservices.invalidate_cache()
+    invalidate_plan_cache()
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {"message": f"Task priority updated to P{prio}", "task_id": task_id, "priority_score": prio, "schedule": plan.model_dump(mode="json")}
 
@@ -399,6 +458,7 @@ async def update_task_due(task_id: str, req: TaskDueUpdateRequest):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update due date in Google Tasks")
     daemon_service.gservices.invalidate_cache()
+    invalidate_plan_cache()
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {"message": f"Task due date updated to {req.due}", "task_id": task_id, "due": req.due, "schedule": plan.model_dump(mode="json")}
 
@@ -409,6 +469,7 @@ async def defer_task(task_id: str, days: int = Query(default=1)):
     logger.info(f"Snoozed task '{task_id}' for {days} days (until {until_date})")
     
     daemon_service.gservices.invalidate_cache()
+    invalidate_plan_cache()
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {"message": f"Task snoozed for {days} days (until {until_date})", "task_id": task_id, "deferred_until": until_date.isoformat(), "schedule": plan.model_dump(mode="json")}
 
@@ -420,6 +481,7 @@ async def snooze_task(req: SnoozeRequest):
     logger.info(f"Snoozed task '{req.task_id}' for {days} days (until {until_date})")
     
     daemon_service.gservices.invalidate_cache()
+    invalidate_plan_cache()
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {
         "message": f"Task snoozed for {days} day(s) (until {until_date})",
@@ -433,6 +495,7 @@ async def unsnooze_task(req: SnoozeRequest):
     await asyncio.to_thread(daemon_service.db.clear_deferral, req.task_id)
     logger.info(f"Woke/unsnoozed task '{req.task_id}'")
     daemon_service.gservices.invalidate_cache()
+    invalidate_plan_cache()
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {
         "message": "Task unsnoozed",
@@ -444,6 +507,7 @@ async def unsnooze_task(req: SnoozeRequest):
 async def trigger_reschedule():
     logger.info("Manual reschedule requested via API.")
     daemon_service.gservices.invalidate_cache()
+    invalidate_plan_cache()
     plan = await daemon_service.run_sync_cycle(force_calendar_sync=True)
     return {
         "message": "Reschedule cycle completed successfully",
@@ -474,6 +538,8 @@ async def complete_task(req: TaskCompletionRequest, background_tasks: Background
         actual_minutes=req.actual_minutes,
     )
     await asyncio.to_thread(daemon_service.db.record_completion, record)
+    await asyncio.to_thread(daemon_service.db.mark_kanban_task_complete, req.task_id, req.actual_minutes)
+    invalidate_plan_cache()
     logger.info(f"Recorded completion for task '{record.title}' (actual: {req.actual_minutes}m)")
 
     async def _complete_and_resync():
@@ -482,8 +548,6 @@ async def complete_task(req: TaskCompletionRequest, background_tasks: Background
 
     background_tasks.add_task(_complete_and_resync)
     return {"message": "Task completion recorded & reschedule triggered", "record": record.model_dump(mode="json")}
-
-_tablet_screen_sleeping: bool = False
 
 def _post_ha_webhook(url: str):
     import urllib.request
@@ -498,6 +562,11 @@ async def get_tablet_screen_status():
 async def sleep_tablet(from_ha: bool = False):
     global _tablet_screen_sleeping
     _tablet_screen_sleeping = True
+    try:
+        await asyncio.to_thread(daemon_service.db.save_setting, "tablet_screen_sleeping", True)
+    except Exception as e:
+        logger.warning(f"Failed to persist tablet_screen_sleeping=True: {e}")
+    invalidate_plan_cache()
     if from_ha:
         return {"status": "ok", "action": "sleep", "sleeping": True}
     try:
@@ -511,6 +580,11 @@ async def sleep_tablet(from_ha: bool = False):
 async def wake_tablet(from_ha: bool = False):
     global _tablet_screen_sleeping
     _tablet_screen_sleeping = False
+    try:
+        await asyncio.to_thread(daemon_service.db.save_setting, "tablet_screen_sleeping", False)
+    except Exception as e:
+        logger.warning(f"Failed to persist tablet_screen_sleeping=False: {e}")
+    invalidate_plan_cache()
     if from_ha:
         return {"status": "ok", "action": "wake", "sleeping": False}
     try:
@@ -551,4 +625,5 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     host = os.getenv("HOST", "0.0.0.0")
-    uvicorn.run("monga_cal.main:app", host=host, port=port, reload=True)
+    reload_flag = os.getenv("RELOAD", "false").lower() in ("true", "1")
+    uvicorn.run("monga_cal.main:app", host=host, port=port, reload=reload_flag)

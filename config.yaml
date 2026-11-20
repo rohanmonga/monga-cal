@@ -2,7 +2,7 @@ ai:
   default_duration_minutes: 30
   default_priority: 5
   history_limit: 20
-  model_name: gemini-3.5-flash-lite
+  model_name: gemini-2.5-flash
 daemon:
   db_path: monga_cal.db
   poll_interval_seconds: 180

@@ -22,7 +22,7 @@ SCOPES = [
 ]
 
 MONGA_BLOCK_PREFIX = "📌 "
-CACHE_TTL_SECONDS = 60
+CACHE_TTL_SECONDS = 120
 
 class GoogleServicesManager:
     def __init__(self):
@@ -575,9 +575,21 @@ class GoogleServicesManager:
                 logger.error(f"Error executing native Google API batch sync: {e}")
                 return False
 
+    @staticmethod
+    def _is_local_only_task_id(task_id: str) -> bool:
+        """Returns True for local Kanban/macro IDs that do not exist in Google Tasks."""
+        if not task_id:
+            return True
+        if task_id.startswith(("kanban_proj_", "gtask-")):
+            return True
+        # Local Kanban UUIDs are 8-char hex strings; Google Task IDs are ~22+ chars
+        if len(task_id) <= 10:
+            return True
+        return False
+
     def mark_task_complete(self, task_id: str) -> bool:
-        if task_id.startswith("kanban_proj_"):
-            logger.info(f"Task '{task_id}' is a Kanban macro project; skipped Google Tasks patch.")
+        if self._is_local_only_task_id(task_id):
+            logger.info(f"Task '{task_id}' is local/Kanban-only; skipped Google Tasks patch.")
             return True
 
         self.invalidate_cache()
@@ -603,8 +615,8 @@ class GoogleServicesManager:
                 return False
 
     def update_task_due(self, task_id: str, due_date: Optional[str]) -> bool:
-        if task_id.startswith("kanban_proj_"):
-            logger.info(f"Task '{task_id}' is a Kanban macro project; skipped Google Tasks due patch.")
+        if self._is_local_only_task_id(task_id):
+            logger.info(f"Task '{task_id}' is local/Kanban-only; skipped Google Tasks due patch.")
             return True
 
         normalized_due = None
