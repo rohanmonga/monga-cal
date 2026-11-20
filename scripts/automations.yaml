@@ -92,11 +92,11 @@
 
 - alias: "Tablet Screen - Off at night"
   id: tablet_screen_off_night
-  description: "Turn helper OFF and sleep screen at 10 PM (forces sleep even if helper already off)"
+  description: "Turn helper OFF and sleep screen at 11 PM (forces sleep even if helper already off)"
   mode: single
   trigger:
     - platform: time
-      at: "22:00:00"
+      at: "23:00:00"
   action:
     - if:
         - condition: state
