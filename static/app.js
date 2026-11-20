@@ -866,6 +866,10 @@ async function fetchPlan(forceRender = false) {
       }
     }
 
+    if (data.theme_preference) {
+      applyRemoteThemePreference(data.theme_preference);
+    }
+
     const solverBadge = document.getElementById('solverTelemetryBadge');
     if (solverBadge && currentSchedule.solver_stats) {
       const rawSec = currentSchedule.solver_stats.solve_time_sec ?? currentSchedule.solver_stats.time_sec;
@@ -2788,17 +2792,50 @@ function updateThemeControls(theme, preference) {
   });
 }
 
+let lastLocalThemeChangeTs = 0;
+
+async function syncThemeToServer(pref) {
+  try {
+    await fetch(`${API_BASE}/api/theme`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preference: pref })
+    });
+  } catch (err) {
+    console.warn('Failed to sync global theme preference:', err);
+  }
+}
+
+function applyRemoteThemePreference(remotePref) {
+  if (remotePref !== 'auto' && remotePref !== 'light' && remotePref !== 'dark') return;
+  if (Date.now() - lastLocalThemeChangeTs < 2500) return;
+
+  const currentPref = getStoredThemePreference();
+  const desiredTheme = remotePref === 'auto' ? getAutoTheme() : remotePref;
+  const activeTheme = document.documentElement.getAttribute('data-theme');
+
+  if (remotePref !== currentPref || desiredTheme !== activeTheme) {
+    localStorage.setItem('monga_theme_preference', remotePref);
+    applyTheme(desiredTheme, remotePref);
+  }
+}
+
 function toggleThemeCycle() {
   const currentTheme = getEffectiveTheme();
   const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  lastLocalThemeChangeTs = Date.now();
   localStorage.setItem('monga_theme_preference', nextTheme);
   applyTheme(nextTheme, nextTheme);
+  syncThemeToServer(nextTheme);
 }
 
 function setThemePreference(pref) {
+  if (pref !== 'auto' && pref !== 'light' && pref !== 'dark') return;
+  lastLocalThemeChangeTs = Date.now();
   localStorage.setItem('monga_theme_preference', pref);
   const effective = pref === 'auto' ? getAutoTheme() : pref;
   applyTheme(effective, pref);
+  syncThemeToServer(pref);
 }
 
 function checkAutoThemeTransition() {
@@ -2821,6 +2858,15 @@ function initTheme() {
   applyTheme(effective, getStoredThemePreference());
 
   setInterval(checkAutoThemeTransition, 60000);
+
+  // Instant sync across open tabs in the same browser
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'monga_theme_preference' && e.newValue) {
+      const p = e.newValue;
+      const eff = p === 'auto' ? getAutoTheme() : p;
+      applyTheme(eff, p);
+    }
+  });
 
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {

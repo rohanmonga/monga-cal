@@ -25,6 +25,8 @@ logger = logging.getLogger("monga_cal")
 
 bg_task: Optional[asyncio.Task] = None
 _tablet_screen_sleeping: bool = False
+_theme_preference: str = "auto"
+ALLOWED_THEME_PREFS = {"auto", "light", "dark"}
 _plan_cache: Optional[Dict[str, Any]] = None
 _plan_cache_ts: float = 0.0
 _plan_cache_lock = asyncio.Lock()
@@ -39,7 +41,7 @@ def invalidate_plan_cache():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bg_task, _tablet_screen_sleeping
+    global bg_task, _tablet_screen_sleeping, _theme_preference
     try:
         saved_sleep = await asyncio.to_thread(daemon_service.db.get_setting, "tablet_screen_sleeping")
         if isinstance(saved_sleep, bool):
@@ -47,6 +49,14 @@ async def lifespan(app: FastAPI):
             logger.info(f"Restored tablet_screen_sleeping={_tablet_screen_sleeping} from DB")
     except Exception as e:
         logger.warning(f"Could not restore tablet_screen_sleeping setting: {e}")
+
+    try:
+        saved_theme = await asyncio.to_thread(daemon_service.db.get_setting, "theme_preference")
+        if isinstance(saved_theme, str) and saved_theme in ALLOWED_THEME_PREFS:
+            _theme_preference = saved_theme
+            logger.info(f"Restored global theme_preference='{_theme_preference}' from DB")
+    except Exception as e:
+        logger.warning(f"Could not restore theme_preference setting: {e}")
 
     daemon_service._on_plan_updated = invalidate_plan_cache
     logger.info("Starting monga-cal background daemon...")
@@ -108,6 +118,9 @@ class OAuthExchangeRequest(BaseModel):
 
 class TaskDueUpdateRequest(BaseModel):
     due: Optional[str] = None
+
+class ThemePreferenceRequest(BaseModel):
+    preference: str
 
 @app.get("/api/status")
 def get_status():
@@ -286,6 +299,7 @@ async def get_plan(force_solve: bool = False):
             **_plan_cache,
             "status": get_status(),
             "tablet_screen": {"sleeping": _tablet_screen_sleeping},
+            "theme_preference": _theme_preference,
         }
 
     async with _plan_cache_lock:
@@ -294,6 +308,7 @@ async def get_plan(force_solve: bool = False):
                 **_plan_cache,
                 "status": get_status(),
                 "tablet_screen": {"sleeping": _tablet_screen_sleeping},
+                "theme_preference": _theme_preference,
             }
 
         existing_plan_raw = await asyncio.to_thread(daemon_service.db.get_latest_plan)
@@ -344,6 +359,7 @@ async def get_plan(force_solve: bool = False):
                 ).model_dump(mode="json"),
                 "config": get_config(),
                 "tablet_screen": {"sleeping": _tablet_screen_sleeping},
+                "theme_preference": _theme_preference,
             }
             _plan_cache = payload
             _plan_cache_ts = time.monotonic()
@@ -356,6 +372,7 @@ async def get_plan(force_solve: bool = False):
             "schedule": plan.model_dump(mode="json"),
             "config": get_config(),
             "tablet_screen": {"sleeping": _tablet_screen_sleeping},
+            "theme_preference": _theme_preference,
         }
         _plan_cache = payload
         _plan_cache_ts = time.monotonic()
@@ -602,6 +619,25 @@ async def toggle_tablet():
     else:
         return await sleep_tablet()
 
+@app.get("/api/theme")
+async def get_theme_preference():
+    return {"preference": _theme_preference}
+
+@app.post("/api/theme")
+async def set_theme_preference_api(req: ThemePreferenceRequest):
+    global _theme_preference
+    pref = (req.preference or "").strip().lower()
+    if pref not in ALLOWED_THEME_PREFS:
+        raise HTTPException(status_code=400, detail=f"Invalid theme preference '{req.preference}'. Must be one of: auto, light, dark")
+    _theme_preference = pref
+    try:
+        await asyncio.to_thread(daemon_service.db.save_setting, "theme_preference", pref)
+    except Exception as e:
+        logger.warning(f"Failed to persist global theme_preference='{pref}': {e}")
+    invalidate_plan_cache()
+    logger.info(f"Updated global theme preference to '{pref}'")
+    return {"status": "ok", "preference": _theme_preference}
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
     index_path = os.path.join(os.path.dirname(__file__), "..", "static", "index.html")
@@ -609,6 +645,9 @@ async def serve_index():
         index_path = "static/index.html"
     with open(index_path, "r", encoding="utf-8") as f:
         content = f.read()
+    # Inject global theme preference directly into initial HTML so brand-new devices render with zero flash
+    safe_pref = _theme_preference if _theme_preference in ALLOWED_THEME_PREFS else "auto"
+    content = content.replace("/*__INITIAL_THEME__*/ null", f'"{safe_pref}"')
     return HTMLResponse(
         content=content,
         headers={

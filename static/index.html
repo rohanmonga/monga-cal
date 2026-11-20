@@ -15,7 +15,11 @@
   <script>
     (function() {
       try {
-        if (!localStorage.getItem('monga_theme_preference_v7')) {
+        var serverPref = /*__INITIAL_THEME__*/ null;
+        if (serverPref === 'auto' || serverPref === 'light' || serverPref === 'dark') {
+          localStorage.setItem('monga_theme_preference', serverPref);
+          localStorage.setItem('monga_theme_preference_v7', '1');
+        } else if (!localStorage.getItem('monga_theme_preference_v7')) {
           localStorage.setItem('monga_theme_preference', 'auto');
           localStorage.setItem('monga_theme_preference_v7', '1');
         }
@@ -535,6 +539,6 @@
   <!-- Non-Blocking Toast Notification Stack -->
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script src="app.js?v=27"></script>
+  <script src="app.js?v=28"></script>
 </body>
 </html>

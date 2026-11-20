@@ -321,6 +321,38 @@ class TestAuditFixes(unittest.TestCase):
             self.assertEqual(dict(row)["kanban_column"], "done")
             self.assertEqual(dict(row)["actual_minutes"], 20)
 
+    def test_global_theme_preference_api_and_html_injection(self):
+        """
+        Global Theme Sync: POST /api/theme persists preference, rejects invalid values,
+        and serves it directly in index.html & GET /api/theme.
+        """
+        import asyncio
+        from fastapi import HTTPException
+        from monga_cal import main as m
+
+        orig_db = m.daemon_service.db
+        orig_pref = m._theme_preference
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_db = Database(db_path_or_url=os.path.join(tmpdir, "theme_test.db"))
+            try:
+                m.daemon_service.db = test_db
+                res = asyncio.run(m.set_theme_preference_api(m.ThemePreferenceRequest(preference="dark")))
+                self.assertEqual(res["preference"], "dark")
+                self.assertEqual(test_db.get_setting("theme_preference"), "dark")
+
+                got = asyncio.run(m.get_theme_preference())
+                self.assertEqual(got["preference"], "dark")
+
+                html_resp = asyncio.run(m.serve_index())
+                self.assertIn('var serverPref = "dark";', html_resp.body.decode("utf-8"))
+
+                with self.assertRaises(HTTPException) as ctx:
+                    asyncio.run(m.set_theme_preference_api(m.ThemePreferenceRequest(preference="neon")))
+                self.assertEqual(ctx.exception.status_code, 400)
+            finally:
+                m.daemon_service.db = orig_db
+                m._theme_preference = orig_pref
+
 
 if __name__ == "__main__":
     unittest.main()
